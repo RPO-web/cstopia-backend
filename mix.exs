@@ -56,7 +56,9 @@ defmodule CstopiaBackend.MixProject do
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"},
       {:ueberauth, "~> 0.10.5"},
-      {:ueberauth_discord, "~> 0.7.0"}
+      {:ueberauth_discord, "~> 0.7.0"},
+      {:hammer, "~> 6.1"},
+      {:hammer_plug, "~> 3.0"}
     ]
   end
 

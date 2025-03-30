@@ -1,5 +1,6 @@
 defmodule CstopiaBackendWeb.Router do
   use CstopiaBackendWeb, :router
+  import CstopiaBackendWeb.RateLimiter
 
   pipeline :browser do
     plug :accepts, ["html"]
@@ -8,11 +9,18 @@ defmodule CstopiaBackendWeb.Router do
     plug :put_root_layout, html: {CstopiaBackendWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug CstopiaBackendWeb.Plugs.RemoteIp
+    plug :rate_limit_general
     plug CstopiaBackendWeb.UserAuth, :fetch_current_user
   end
 
   pipeline :api do
     plug :accepts, ["json"]
+  end
+
+  # Add a stricter rate limit for auth routes
+  pipeline :auth_rate_limit do
+    plug :rate_limit_auth
   end
 
   # Unauthenticated routes that can be accessed by anyone
@@ -22,9 +30,9 @@ defmodule CstopiaBackendWeb.Router do
     get "/", PageController, :home
   end
 
-  # Authentication routes
+  # Authentication routes with stricter rate limiting
   scope "/auth", CstopiaBackendWeb do
-    pipe_through :browser
+    pipe_through [:browser, :auth_rate_limit]
 
     get "/:provider", AuthController, :request
     get "/:provider/callback", AuthController, :callback
