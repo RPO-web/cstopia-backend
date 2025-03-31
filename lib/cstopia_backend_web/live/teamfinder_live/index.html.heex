@@ -55,19 +55,19 @@
             <div class="py-2">
               <button phx-click="select-lobby-type" phx-value-type="Competitive" class={"w-full flex items-center text-gray-300 hover:bg-gray-700 px-4 py-2 text-left #{if @selected_lobby_type == "Competitive", do: "bg-gray-700"}"}>
                 <span class="h-2 w-2 bg-green-400 rounded-full mr-2"></span>
-                <span>Competitive (<%= Enum.count(@lobbies, fn l -> l.lobby_type == "Competitive" end) %>)</span>
+                <span>Competitive (<%= Enum.count(@lobbies, fn l -> is_map(l) && Map.has_key?(l, :lobby_type) && l.lobby_type == "Competitive" end) %>)</span>
               </button>
               <button phx-click="select-lobby-type" phx-value-type="Casual" class={"w-full flex items-center text-gray-300 hover:bg-gray-700 px-4 py-2 text-left #{if @selected_lobby_type == "Casual", do: "bg-gray-700"}"}>
                 <span class="h-2 w-2 bg-blue-400 rounded-full mr-2"></span>
-                <span>Casual (<%= Enum.count(@lobbies, fn l -> l.lobby_type == "Casual" end) %>)</span>
+                <span>Casual (<%= Enum.count(@lobbies, fn l -> is_map(l) && Map.has_key?(l, :lobby_type) && l.lobby_type == "Casual" end) %>)</span>
               </button>
               <button phx-click="select-lobby-type" phx-value-type="Practice" class={"w-full flex items-center text-gray-300 hover:bg-gray-700 px-4 py-2 text-left #{if @selected_lobby_type == "Practice", do: "bg-gray-700"}"}>
                 <span class="h-2 w-2 bg-purple-400 rounded-full mr-2"></span>
-                <span>Practice/Scrims (<%= Enum.count(@lobbies, fn l -> l.lobby_type == "Practice" end) %>)</span>
+                <span>Practice/Scrims (<%= Enum.count(@lobbies, fn l -> is_map(l) && Map.has_key?(l, :lobby_type) && l.lobby_type == "Practice" end) %>)</span>
               </button>
               <button phx-click="select-lobby-type" phx-value-type="Tournament" class={"w-full flex items-center text-gray-300 hover:bg-gray-700 px-4 py-2 text-left #{if @selected_lobby_type == "Tournament", do: "bg-gray-700"}"}>
                 <span class="h-2 w-2 bg-yellow-400 rounded-full mr-2"></span>
-                <span>Tournament (<%= Enum.count(@lobbies, fn l -> l.lobby_type == "Tournament" end) %>)</span>
+                <span>Tournament (<%= Enum.count(@lobbies, fn l -> is_map(l) && Map.has_key?(l, :lobby_type) && l.lobby_type == "Tournament" end) %>)</span>
               </button>
             </div>
           </div>
@@ -94,6 +94,7 @@
                 </div>
               <% else %>
                 <%= for lobby <- @lobbies do %>
+                  <%= if is_map(lobby) && Map.has_key?(lobby, :id) && Map.has_key?(lobby, :title) && Map.has_key?(lobby, :lobby_type) do %>
                   <div class="border border-gray-200 rounded-lg hover:border-indigo-500 transition-colors duration-150">
                     <div class="flex p-4 items-center justify-between border-b border-gray-200">
                       <div class="flex items-center">
@@ -133,23 +134,27 @@
                     <div class="p-4">
                       <div class="flex justify-between mb-3">
                         <div class="text-sm text-gray-500">
-                          <span class="font-medium text-gray-900">Region:</span> <%= lobby.region %>
+                          <span class="font-medium text-gray-900">Region:</span> <%= Map.get(lobby, :region, "Unknown") %>
                         </div>
                         <div class="text-sm text-gray-500">
-                          <span class="font-medium text-gray-900">Rank:</span> <%= lobby.rank_required %>
+                          <span class="font-medium text-gray-900">Rank:</span> <%= Map.get(lobby, :rank_required, "Any") %>
                         </div>
                       </div>
                       
                       <div class="border-t border-gray-200 pt-3 pb-1">
-                        <h4 class="text-sm font-medium text-gray-900 mb-2">Current Players (<%= length(lobby.players) %>/<%= lobby.team_size %>):</h4>
+                        <h4 class="text-sm font-medium text-gray-900 mb-2">Current Players (<%= if Map.has_key?(lobby, :players) && is_list(lobby.players), do: length(lobby.players), else: 0 %>/<%= Map.get(lobby, :team_size, "?") %>):</h4>
                         <div class="flex flex-wrap gap-2">
-                          <%= for player <- lobby.players do %>
-                            <div class="flex items-center bg-gray-100 rounded-full pl-1 pr-3 py-1">
-                              <div class="h-6 w-6 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs mr-2">
-                                <%= String.slice(player["username"], 0, 2) %>
+                          <%= if Map.has_key?(lobby, :players) && is_list(lobby.players) do %>
+                            <%= for player <- lobby.players do %>
+                              <%= if is_map(player) && Map.has_key?(player, "username") do %>
+                              <div class="flex items-center bg-gray-100 rounded-full pl-1 pr-3 py-1">
+                                <div class="h-6 w-6 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs mr-2">
+                                  <%= String.slice(player["username"], 0, 2) %>
+                                </div>
+                                <span class="text-sm"><%= player["username"] %></span>
                               </div>
-                              <span class="text-sm"><%= player["username"] %></span>
-                            </div>
+                              <% end %>
+                            <% end %>
                           <% end %>
                         </div>
                       </div>
@@ -157,13 +162,18 @@
                     
                     <div class="bg-gray-50 px-4 py-3 rounded-b-lg flex justify-between items-center">
                       <span class="text-xs text-gray-500">
-                        Created <%= relative_time(lobby.created_at) %>
+                        Created <%= if Map.has_key?(lobby, :created_at), do: relative_time(lobby.created_at), else: "recently" %>
+                        <% leader = if Map.has_key?(lobby, :leader_id) && Map.has_key?(lobby, :players), do: get_player_by_id(lobby, lobby.leader_id), else: nil %>
+                        <%= if leader && !player_is_connected?(leader) do %>
+                          · <span class="text-amber-600">Host Offline</span>
+                        <% end %>
                       </span>
                       <.link navigate={~p"/teamfinder/#{lobby.id}"} class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                         View Details
                       </.link>
                     </div>
                   </div>
+                  <% end %>
                 <% end %>
               <% end %>
             </div>

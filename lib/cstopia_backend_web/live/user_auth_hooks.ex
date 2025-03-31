@@ -6,7 +6,8 @@ defmodule CstopiaBackendWeb.UserAuthHooks do
 
   # The same values as in UserAuth
   @session_key "user_id"
-  @remember_me_cookie "_cstopia_backend_web_user_remember_me"
+  # Uncomment if you need the remember me cookie in the future
+  # @remember_me_cookie "_cstopia_backend_web_user_remember_me"
 
   def on_mount(:default, _params, session, socket) do
     IO.inspect(session, label: "Session in default hook")

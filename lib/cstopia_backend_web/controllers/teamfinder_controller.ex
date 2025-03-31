@@ -12,7 +12,7 @@ defmodule CstopiaBackendWeb.TeamfinderController do
     render(conn, :index)
   end
 
-  def search(conn, params) do
+  def search(conn, _params) do
     # This will be implemented later to search for teams/teammates
     # For now just render the search page
     render(conn, :search)

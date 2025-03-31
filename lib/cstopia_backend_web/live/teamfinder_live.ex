@@ -2,18 +2,24 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
   use CstopiaBackendWeb, :live_view
   alias CstopiaBackend.Lobbies.LobbyManager
   alias Phoenix.PubSub
+  require Logger
 
   # Embed template files
   embed_templates "teamfinder_live/*"
 
   @impl true
-  def mount(_params, session, socket) do
+  def mount(_params, _session, socket) do
     if connected?(socket) do
       PubSub.subscribe(CstopiaBackend.PubSub, "lobbies")
+
+      # If user is logged in, check if they're in any lobbies
+      if socket.assigns[:current_user] do
+        handle_user_connected(socket.assigns.current_user)
+      end
     end
 
     # The current_user should already be assigned by the auth hook
-    IO.inspect(socket.assigns[:current_user], label: "Current user in TeamfinderLive")
+    Logger.debug("Current user in TeamfinderLive: #{inspect(socket.assigns[:current_user])}")
 
     {:ok,
      socket
@@ -23,6 +29,37 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
      |> assign(:filter_type, "All Types")
      |> assign(:selected_lobby_type, nil)
     }
+  end
+
+  # Handle when a user connects to the LiveView
+  def handle_user_connected(user) do
+    # Find all lobbies the user is in
+    user_lobbies = LobbyManager.find_user_lobbies(user.id)
+
+    # For each lobby, mark the user as reconnected and subscribe to updates
+    Enum.each(user_lobbies, fn lobby ->
+      LobbyManager.user_reconnected(lobby.id, user.id)
+      PubSub.subscribe(CstopiaBackend.PubSub, "lobby:#{lobby.id}")
+    end)
+  end
+
+  @impl true
+  def terminate(_reason, socket) do
+    # Handle LiveView termination - mark user as disconnected in any lobbies
+    if socket.assigns[:current_user] do
+      user = socket.assigns.current_user
+
+      # Find lobbies where the user is a player
+      user_lobbies = LobbyManager.find_user_lobbies(user.id)
+
+      # Mark user as disconnected in each lobby
+      Enum.each(user_lobbies, fn lobby ->
+        Logger.info("User #{user.id} disconnected from lobby #{lobby.id}, starting inactivity timer")
+        LobbyManager.user_disconnected(lobby.id, user.id)
+      end)
+    end
+
+    :ok
   end
 
   @impl true
@@ -49,6 +86,11 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
       {:ok, lobby} ->
         if connected?(socket) do
           PubSub.subscribe(CstopiaBackend.PubSub, "lobby:#{id}")
+
+          # Update user activity in the lobby
+          if socket.assigns[:current_user] do
+            LobbyManager.update_user_activity(id, socket.assigns.current_user.id)
+          end
         end
 
         socket
@@ -98,7 +140,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     lobbies =
       if selected do
         Enum.filter(LobbyManager.list_lobbies(), fn lobby ->
-          lobby.lobby_type == selected
+          is_map(lobby) && Map.has_key?(lobby, :lobby_type) && lobby.lobby_type == selected
         end)
       else
         LobbyManager.list_lobbies()
@@ -313,6 +355,15 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
+  def handle_info({:player_rejoined, _player, updated_lobby}, socket) do
+    # Update the lobby if currently viewing it
+    if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
+      {:noreply, assign(socket, :lobby, updated_lobby)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:player_left, _player_id, updated_lobby}, socket) do
     # Update the lobby if currently viewing it
     if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
@@ -323,6 +374,31 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
   end
 
   def handle_info({:player_kicked, _player_id, updated_lobby}, socket) do
+    # Update the lobby if currently viewing it
+    if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
+      {:noreply, assign(socket, :lobby, updated_lobby)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:player_disconnected, player_id, updated_lobby}, socket) do
+    # Update the lobby if currently viewing it
+    if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
+      # If the current user is viewing this lobby and another player disconnected
+      socket = if socket.assigns[:current_user] && socket.assigns.current_user.id != player_id do
+        assign(socket, :lobby, updated_lobby)
+      else
+        socket
+      end
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:player_reconnected, _player_id, updated_lobby}, socket) do
     # Update the lobby if currently viewing it
     if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
       {:noreply, assign(socket, :lobby, updated_lobby)}
@@ -351,6 +427,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
   end
 
   # Format relative time for display
+  def relative_time(nil), do: "unknown time"
   def relative_time(datetime) do
     now = DateTime.utc_now()
     diff = DateTime.diff(now, datetime, :second)
@@ -369,26 +446,57 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
 
   # Check if a player is in a lobby
   def player_in_lobby?(nil, _lobby), do: false
+  def player_in_lobby?(_user, nil), do: false
   def player_in_lobby?(user, lobby) do
-    Enum.any?(lobby.players, fn player ->
-      player["id"] == user.id
-    end)
+    if Map.has_key?(lobby, :players) && is_list(lobby.players) do
+      Enum.any?(lobby.players, fn player ->
+        is_map(player) && Map.has_key?(player, "id") && player["id"] == user.id
+      end)
+    else
+      false
+    end
   end
 
   # Check if a player is the lobby leader
   def player_is_leader?(nil, _lobby), do: false
+  def player_is_leader?(_user, nil), do: false
   def player_is_leader?(user, lobby) do
-    user.id == lobby.leader_id
+    Map.has_key?(lobby, :leader_id) && user.id == lobby.leader_id
   end
 
   # Get player information by ID
+  def get_player_by_id(nil, _player_id), do: nil
+  def get_player_by_id(_lobby, nil), do: nil
   def get_player_by_id(lobby, player_id) do
-    Enum.find(lobby.players, fn player -> player["id"] == player_id end)
+    if Map.has_key?(lobby, :players) && is_list(lobby.players) do
+      Enum.find(lobby.players, fn player ->
+        is_map(player) && Map.has_key?(player, "id") && player["id"] == player_id
+      end)
+    else
+      nil
+    end
   end
 
   # Get player join time (for displaying seniority)
+  def get_player_join_time(nil), do: "unknown"
   def get_player_join_time(player) do
-    joined_at = player["joined_at"]
+    joined_at = Map.get(player, "joined_at")
     if joined_at, do: relative_time(joined_at), else: "unknown"
+  end
+
+  # Check if a player is connected
+  def player_is_connected?(nil), do: false
+  def player_is_connected?(player) do
+    Map.get(player, "connected", false) == true
+  end
+
+  # Format the connection status for display
+  def format_connection_status(nil), do: "Unknown"
+  def format_connection_status(player) do
+    if player_is_connected?(player) do
+      "Online"
+    else
+      "Offline"
+    end
   end
 end

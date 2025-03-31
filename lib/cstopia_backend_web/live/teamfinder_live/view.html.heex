@@ -97,7 +97,18 @@
                           </div>
                           <div class="flex flex-col">
                             <span class="text-sm font-medium"><%= player["username"] %></span>
-                            <span class="text-xs text-gray-500">Joined: <%= get_player_join_time(player) %></span>
+                            <div class="flex items-center space-x-2">
+                              <span class="text-xs text-gray-500">Joined: <%= get_player_join_time(player) %></span>
+                              <%= if player_is_connected?(player) do %>
+                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                  Online
+                                </span>
+                              <% else %>
+                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                  Offline
+                                </span>
+                              <% end %>
+                            </div>
                           </div>
                         </div>
                         <div class="flex items-center space-x-2">
