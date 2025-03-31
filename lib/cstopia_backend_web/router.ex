@@ -44,6 +44,15 @@ defmodule CstopiaBackendWeb.Router do
     pipe_through [:browser, :require_authenticated_user]
 
     # Add protected routes here
+
+    # Team Finder routes with LiveView - ensure the session gets the user data
+    live_session :authenticated,
+                 on_mount: {CstopiaBackendWeb.UserAuthHooks, :default},
+                 session: {CstopiaBackendWeb.LiveSessionUtils, :put_user_in_session, []} do
+      live "/teamfinder", TeamfinderLive, :index
+      live "/teamfinder/create", TeamfinderLive, :create
+      live "/teamfinder/:id", TeamfinderLive, :view
+    end
   end
 
   # Protected routes pipeline

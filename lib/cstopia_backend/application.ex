@@ -15,7 +15,9 @@ defmodule CstopiaBackend.Application do
       # Start a worker by calling: CstopiaBackend.Worker.start_link(arg)
       # {CstopiaBackend.Worker, arg},
       # Start to serve requests, typically the last entry
-      CstopiaBackendWeb.Endpoint
+      CstopiaBackendWeb.Endpoint,
+      {Registry, keys: :unique, name: CstopiaBackend.Lobbies.LobbyRegistry},
+      CstopiaBackend.Lobbies.LobbySupervisor
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

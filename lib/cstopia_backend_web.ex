@@ -53,6 +53,8 @@ defmodule CstopiaBackendWeb do
       use Phoenix.LiveView,
         layout: {CstopiaBackendWeb.Layouts, :app}
 
+      on_mount {CstopiaBackendWeb.UserAuthHooks, :default}
+
       unquote(html_helpers())
     end
   end

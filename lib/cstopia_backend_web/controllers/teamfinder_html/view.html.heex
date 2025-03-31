@@ -1,0 +1,173 @@
+<.flash_group flash={@flash} />
+
+<div class="relative min-h-screen bg-gray-50">
+  <main class="py-6">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div class="bg-white shadow rounded-lg overflow-hidden">
+        <!-- Header with navigation -->
+        <div class="flex items-center justify-between p-4 border-b border-gray-200">
+          <div class="flex items-center">
+            <div class="h-4 w-4 bg-green-400 rounded-full mr-3"></div>
+            <h1 class="text-xl font-semibold text-gray-900">Team Lobby: #<%= @id %></h1>
+          </div>
+          <a href={~p"/teamfinder"} class="text-indigo-600 hover:text-indigo-800">Back to Lobbies</a>
+        </div>
+        
+        <!-- Two-column layout: Team details + Chat -->
+        <div class="grid grid-cols-1 md:grid-cols-3">
+          <!-- Team details sidebar -->
+          <div class="p-4 border-r border-gray-200">
+            <div class="mb-6">
+              <h2 class="text-lg font-medium text-gray-900 mb-2">Team Alpha</h2>
+              <p class="text-sm text-gray-500">Created 10 minutes ago</p>
+              
+              <div class="mt-4 space-y-2">
+                <div class="flex justify-between">
+                  <span class="text-sm font-medium text-gray-500">Region:</span>
+                  <span class="text-sm text-gray-900">North America</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-sm font-medium text-gray-500">Rank Required:</span>
+                  <span class="text-sm text-gray-900">Master Guardian+</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-sm font-medium text-gray-500">Type:</span>
+                  <span class="text-sm text-gray-900">Competitive</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-sm font-medium text-gray-500">Players:</span>
+                  <span class="text-sm text-gray-900">3/5</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="mb-6">
+              <h3 class="text-md font-medium text-gray-900 mb-2">Description</h3>
+              <p class="text-sm text-gray-600">Looking for 2 more players to join our team for competitive matches. We prefer players who communicate well and know basic strategies.</p>
+            </div>
+            
+            <div>
+              <h3 class="text-md font-medium text-gray-900 mb-2">Current Players</h3>
+              <ul class="space-y-3">
+                <li class="flex items-center justify-between">
+                  <div class="flex items-center">
+                    <div class="h-8 w-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs mr-2">JD</div>
+                    <span class="text-sm font-medium">JohnDoe</span>
+                  </div>
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                    Leader
+                  </span>
+                </li>
+                <li class="flex items-center">
+                  <div class="h-8 w-8 rounded-full bg-pink-500 flex items-center justify-center text-white text-xs mr-2">AS</div>
+                  <span class="text-sm font-medium">AimStar</span>
+                </li>
+                <li class="flex items-center">
+                  <div class="h-8 w-8 rounded-full bg-green-500 flex items-center justify-center text-white text-xs mr-2">FZ</div>
+                  <span class="text-sm font-medium">FrazerGG</span>
+                </li>
+              </ul>
+            </div>
+            
+            <div class="mt-6">
+              <button type="button" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                Join Team
+              </button>
+            </div>
+          </div>
+          
+          <!-- Chat area - Would be implemented with LiveView -->
+          <div class="md:col-span-2 flex flex-col h-[calc(100vh-12rem)]">
+            <!-- Chat messages area -->
+            <div class="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50">
+              <!-- System message -->
+              <div class="flex justify-center">
+                <span class="inline-block px-3 py-1 text-xs text-gray-500 bg-gray-100 rounded-full">JohnDoe created this lobby 10 minutes ago</span>
+              </div>
+              
+              <!-- Chat message -->
+              <div class="flex items-start">
+                <div class="h-8 w-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs mr-2">JD</div>
+                <div>
+                  <div class="flex items-center space-x-1">
+                    <span class="font-medium text-sm">JohnDoe</span>
+                    <span class="text-xs text-gray-500">10:24 AM</span>
+                  </div>
+                  <p class="text-sm text-gray-800">Hey everyone! Welcome to the lobby. Looking for 2 more players.</p>
+                </div>
+              </div>
+              
+              <!-- System message -->
+              <div class="flex justify-center">
+                <span class="inline-block px-3 py-1 text-xs text-gray-500 bg-gray-100 rounded-full">AimStar joined the lobby</span>
+              </div>
+              
+              <!-- Chat message -->
+              <div class="flex items-start">
+                <div class="h-8 w-8 rounded-full bg-pink-500 flex items-center justify-center text-white text-xs mr-2">AS</div>
+                <div>
+                  <div class="flex items-center space-x-1">
+                    <span class="font-medium text-sm">AimStar</span>
+                    <span class="text-xs text-gray-500">10:26 AM</span>
+                  </div>
+                  <p class="text-sm text-gray-800">Hi there! I'd like to join. I'm DMG rank and mainly play rifler.</p>
+                </div>
+              </div>
+              
+              <!-- Chat message -->
+              <div class="flex items-start">
+                <div class="h-8 w-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs mr-2">JD</div>
+                <div>
+                  <div class="flex items-center space-x-1">
+                    <span class="font-medium text-sm">JohnDoe</span>
+                    <span class="text-xs text-gray-500">10:27 AM</span>
+                  </div>
+                  <p class="text-sm text-gray-800">Sounds good! Welcome aboard. Do you have a mic?</p>
+                </div>
+              </div>
+              
+              <!-- System message -->
+              <div class="flex justify-center">
+                <span class="inline-block px-3 py-1 text-xs text-gray-500 bg-gray-100 rounded-full">FrazerGG joined the lobby</span>
+              </div>
+              
+              <!-- Chat message -->
+              <div class="flex items-start">
+                <div class="h-8 w-8 rounded-full bg-green-500 flex items-center justify-center text-white text-xs mr-2">FZ</div>
+                <div>
+                  <div class="flex items-center space-x-1">
+                    <span class="font-medium text-sm">FrazerGG</span>
+                    <span class="text-xs text-gray-500">10:30 AM</span>
+                  </div>
+                  <p class="text-sm text-gray-800">Hey guys, I can AWP if needed. When are we planning to play?</p>
+                </div>
+              </div>
+              
+              <!-- Chat message -->
+              <div class="flex items-start">
+                <div class="h-8 w-8 rounded-full bg-pink-500 flex items-center justify-center text-white text-xs mr-2">AS</div>
+                <div>
+                  <div class="flex items-center space-x-1">
+                    <span class="font-medium text-sm">AimStar</span>
+                    <span class="text-xs text-gray-500">10:32 AM</span>
+                  </div>
+                  <p class="text-sm text-gray-800">@JohnDoe Yes, I have a mic and Discord ready.</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Chat input area -->
+            <div class="p-4 border-t border-gray-200">
+              <form class="flex space-x-2">
+                <input type="text" placeholder="Type a message..." class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
+                <button type="button" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                  Send
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div> 
