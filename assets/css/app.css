@@ -2,4 +2,67 @@
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
 
-/* This file is for your main application CSS */
+/* ====================================
+   Main Application CSS
+   ==================================== */
+
+/* -----------------------------
+   Alpine.js Utilities
+   ----------------------------- */
+/* Hide Alpine elements until initialized */
+[x-cloak] {
+  display: none !important;
+}
+
+/* Hide elements with x-show until explicitly shown */
+[x-show]:not(.show-by-default) {
+  display: none !important;
+}
+
+/* -----------------------------
+   Tooltip Component Styles
+   ----------------------------- */
+.tooltip-content {
+  z-index: 50;
+  max-width: 200px;
+}
+
+/* -----------------------------
+   Sortable List Components
+   ----------------------------- */
+/* Ghost element during drag */
+.sortable-ghost {
+  opacity: 0.5;
+  background-color: #eef2ff !important; /* Indigo-50 */
+  border: 1px dashed #6366f1 !important; /* Indigo-500 */
+}
+
+/* Drag handle styling */
+.drag-handle {
+  cursor: move;
+  cursor: grab;
+  transition: color 0.2s ease;
+}
+
+.drag-handle:hover {
+  color: #4b5563; /* Gray-600 */
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Player status indicators */
+.player-card {
+  transition: all 0.2s ease-in-out;
+}
+
+.player-card:hover {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Host card special styling */
+.host-card {
+  position: relative;
+  z-index: 1;
+}

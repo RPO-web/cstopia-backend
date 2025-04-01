@@ -114,6 +114,28 @@ defmodule CstopiaBackend.Lobbies.LobbyManager do
     end
   end
 
+  # Transfer leadership to another player (only current leader can do this)
+  def transfer_leadership(lobby_id, current_leader_id, new_leader_id) do
+    with {:ok, lobby} <- get_lobby(lobby_id),
+         true <- lobby.leader_id == current_leader_id do
+      LobbyServer.transfer_leadership(lobby_id, current_leader_id, new_leader_id)
+    else
+      {:error, _} -> {:error, :not_found}
+      false -> {:error, :not_authorized}
+    end
+  end
+
+  # Update player positions in a lobby (only the leader can do this)
+  def update_player_positions(lobby_id, leader_id, player_order) do
+    with {:ok, lobby} <- get_lobby(lobby_id),
+         true <- lobby.leader_id == leader_id do
+      LobbyServer.update_player_positions(lobby_id, leader_id, player_order)
+    else
+      {:error, _} -> {:error, :not_found}
+      false -> {:error, :not_authorized}
+    end
+  end
+
   # Filter lobbies by criteria with improved efficiency
   def filter_lobbies(criteria) do
     LobbyRegistry.filter_lobbies(criteria)

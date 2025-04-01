@@ -1,78 +1,77 @@
 <div class="relative min-h-screen bg-gray-50">
   <main class="py-6">
-    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-      <div class="bg-white shadow rounded-lg overflow-hidden">
-        <div class="flex items-center justify-between p-4 border-b border-gray-200">
-          <h1 class="text-xl font-semibold text-gray-900">Create Team Lobby</h1>
-          <.link navigate={~p"/teamfinder"} class="text-indigo-600 hover:text-indigo-800">Back to Lobbies</.link>
+    <div class="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8">
+      <div class="bg-white shadow rounded-lg overflow-hidden p-6">
+        <div class="mb-6 flex items-center justify-between">
+          <h1 class="text-xl font-semibold text-gray-900">Create Team</h1>
+          <.link navigate={~p"/teamfinder"} class="text-indigo-600 hover:text-indigo-800">Back to Teams</.link>
         </div>
-
-        <div class="p-6">
-          <form phx-submit="create-lobby" class="space-y-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label for="title" class="block text-sm font-medium text-gray-700 mb-1">Lobby Title</label>
-                <input type="text" name="title" id="title" required placeholder="Enter a descriptive title" class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md" />
-              </div>
-              
-              <div>
-                <label for="team_size" class="block text-sm font-medium text-gray-700 mb-1">Team Size</label>
-                <select id="team_size" name="team_size" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
-                  <option value="2">2 players</option>
-                  <option value="3">3 players</option>
-                  <option value="4">4 players</option>
-                  <option value="5" selected>5 players</option>
-                </select>
-              </div>
-
-              <div>
-                <label for="rank_required" class="block text-sm font-medium text-gray-700 mb-1">Required Rank</label>
-                <select id="rank_required" name="rank_required" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
-                  <option>Any Rank</option>
-                  <option>Silver</option>
-                  <option>Gold Nova</option>
-                  <option>Master Guardian</option>
-                  <option>Distinguished Master Guardian</option>
-                  <option>Legendary Eagle</option>
-                  <option>Supreme</option>
-                  <option>Global Elite</option>
-                </select>
-              </div>
-              
+        
+        <form phx-submit="create-lobby" class="space-y-6">
+          <div>
+            <div class="mb-4">
+              <label for="title" class="block text-sm font-medium text-gray-700 mb-1">Team Title</label>
+              <input type="text" id="title" name="title" required class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md" placeholder="Enter a descriptive title for your team">
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div>
                 <label for="region" class="block text-sm font-medium text-gray-700 mb-1">Region</label>
                 <select id="region" name="region" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
-                  <option>North America</option>
-                  <option>Europe</option>
-                  <option>Asia</option>
-                  <option>Oceania</option>
-                  <option>South America</option>
+                  <option value="North America">North America</option>
+                  <option value="Europe">Europe</option>
+                  <option value="Asia">Asia</option>
+                  <option value="Oceania">Oceania</option>
+                  <option value="South America">South America</option>
                 </select>
               </div>
-
+              
               <div>
-                <label for="lobby_type" class="block text-sm font-medium text-gray-700 mb-1">Lobby Type</label>
-                <select id="lobby_type" name="lobby_type" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
-                  <option>Competitive</option>
-                  <option>Casual</option>
-                  <option>Practice</option>
-                  <option>Tournament</option>
+                <label for="rank_required" class="block text-sm font-medium text-gray-700 mb-1">Rank Required</label>
+                <select id="rank_required" name="rank_required" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                  <option value="Any">Any Rank</option>
+                  <option value="Silver">Silver</option>
+                  <option value="Gold Nova">Gold Nova</option>
+                  <option value="Master Guardian">Master Guardian</option>
+                  <option value="Legendary Eagle+">Legendary Eagle+</option>
                 </select>
               </div>
-
-              <div class="md:col-span-2">
-                <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea id="description" name="description" rows="4" required placeholder="Describe your team, what roles you're looking for, etc." class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"></textarea>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label for="team_size" class="block text-sm font-medium text-gray-700 mb-1">Team Size</label>
+                <select id="team_size" name="team_size" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                  <option value="2">2 Players</option>
+                  <option value="3">3 Players</option>
+                  <option value="4">4 Players</option>
+                  <option value="5" selected>5 Players</option>
+                </select>
+              </div>
+              
+              <div>
+                <label for="lobby_type" class="block text-sm font-medium text-gray-700 mb-1">Team Type</label>
+                <select id="lobby_type" name="lobby_type" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                  <option value="Competitive">Competitive</option>
+                  <option value="Casual">Casual</option>
+                  <option value="Practice">Practice</option>
+                  <option value="Tournament">Tournament</option>
+                </select>
               </div>
             </div>
-
-            <div class="flex justify-end">
-              <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                Create Lobby
-              </button>
+            
+            <div class="mb-4">
+              <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea id="description" name="description" rows="3" class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md" placeholder="Describe your team, objectives, requirements, etc."></textarea>
             </div>
-          </form>
-        </div>
+          </div>
+          
+          <div class="pt-4 flex items-center justify-end">
+            <button type="submit" phx-disable-with="Creating..." class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+              Create Team
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   </main>

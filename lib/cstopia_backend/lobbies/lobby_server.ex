@@ -19,7 +19,8 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     creator = Map.merge(params["creator"], %{
       "joined_at" => DateTime.utc_now(),
       "connected" => true,
-      "last_activity" => DateTime.utc_now()
+      "last_activity" => DateTime.utc_now(),
+      "position" => 0  # Leader is always position 0
     })
 
     lobby = %{
@@ -86,6 +87,11 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     GenServer.call(via_tuple(lobby_id), {:kick_player, player_id, should_block})
   end
 
+  # Transfer leadership to another player
+  def transfer_leadership(lobby_id, current_leader_id, new_leader_id) do
+    GenServer.call(via_tuple(lobby_id), {:transfer_leadership, current_leader_id, new_leader_id})
+  end
+
   # Check if a user is in a specific lobby
   def user_in_lobby?(lobby_id, user_id) do
     try do
@@ -117,6 +123,11 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     catch
       _, _ -> []
     end
+  end
+
+  # Update player positions in the lobby
+  def update_player_positions(lobby_id, leader_id, player_order) do
+    GenServer.call(via_tuple(lobby_id), {:update_player_positions, leader_id, player_order})
   end
 
   # Server Callbacks
@@ -177,13 +188,24 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
           {:reply, {:error, "Lobby is full"}, state}
         else
           # Add connection status and timestamps to the player
+          # Calculate the position (one more than the current max position)
+          max_position = state.players
+                         |> Enum.map(fn p -> Map.get(p, "position", 0) end)
+                         |> Enum.max(fn -> 0 end)
+
           player_with_status = Map.merge(player, %{
             "joined_at" => DateTime.utc_now(),
             "connected" => true,
-            "last_activity" => DateTime.utc_now()
+            "last_activity" => DateTime.utc_now(),
+            "position" => max_position + 1
           })
 
+          # Ensure the players list is sorted by position
           updated_players = [player_with_status | state.players]
+                           |> Enum.sort_by(fn p ->
+                              # Leader should always be at position 0
+                              if p["id"] == state.leader_id, do: -1, else: Map.get(p, "position", 999)
+                            end)
           updated_state = %{state | players: updated_players}
 
           # Broadcast player joined
@@ -313,17 +335,19 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     # Mark the user as disconnected
     updated_players = Enum.map(state.players, fn player ->
       if player["id"] == user_id do
-        Map.put(player, "connected", false)
+        player
+        |> Map.put("connected", false)
+        |> Map.put("disconnected_at", DateTime.utc_now())
       else
         player
       end
     end)
 
-    # Start a timer to remove the user after 30 seconds of inactivity
+    # Start a timer to remove the user after 5 minutes of inactivity
     timer_ref = Process.send_after(
       self(),
       {:remove_inactive_user, user_id},
-      30_000  # 30 seconds
+      300_000  # 5 minutes (300 seconds)
     )
 
     updated_timers = Map.put(state.inactive_timers, user_id, timer_ref)
@@ -381,7 +405,7 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
 
   @impl true
   def handle_info({:remove_inactive_user, user_id}, state) do
-    Logger.info("Removing inactive user #{user_id} from lobby #{state.id}")
+    Logger.info("Removing inactive user #{user_id} from lobby #{state.id} after 5 minutes of inactivity")
 
     # Check if this user is actually in the lobby still
     player = Enum.find(state.players, fn p -> p["id"] == user_id end)
@@ -406,6 +430,58 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     {:stop, :normal, state}
   end
 
+  @impl true
+  def handle_call({:transfer_leadership, current_leader_id, new_leader_id}, _from, state) do
+    # Verify the request is from current leader
+    if state.leader_id == current_leader_id do
+      # Verify the new leader is in the lobby
+      if Enum.any?(state.players, fn p -> p["id"] == new_leader_id end) do
+        updated_state = %{state | leader_id: new_leader_id}
+        # Broadcast the leadership transfer event
+        broadcast_leadership_transferred(new_leader_id, updated_state)
+        {:reply, {:ok, updated_state}, updated_state}
+      else
+        {:reply, {:error, "New leader must be in the lobby"}, state}
+      end
+    else
+      {:reply, {:error, :not_authorized}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:update_player_positions, leader_id, player_order}, _from, state) do
+    # Verify the request is from current leader
+    if state.leader_id == leader_id do
+      # Update the position for each player
+      updated_players = Enum.reduce(player_order, state.players, fn {player_id, position}, players ->
+        Enum.map(players, fn player ->
+          if player["id"] == player_id do
+            # Update the position, but leader is always position 0
+            position_value = if player_id == leader_id, do: 0, else: position
+            Map.put(player, "position", position_value)
+          else
+            player
+          end
+        end)
+      end)
+
+      # Sort the players by position
+      sorted_players = Enum.sort_by(updated_players, fn p ->
+        # Leader should always be at position 0
+        if p["id"] == state.leader_id, do: -1, else: Map.get(p, "position", 999)
+      end)
+
+      updated_state = %{state | players: sorted_players}
+
+      # Broadcast lobby updated
+      broadcast_lobby_updated(updated_state)
+
+      {:reply, {:ok, updated_state}, updated_state}
+    else
+      {:reply, {:error, :not_authorized}, state}
+    end
+  end
+
   # Helper for process registration
   defp via_tuple(lobby_id) do
     {:via, Registry, {@registry_name, lobby_id}}
@@ -416,21 +492,15 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     if players == [] do
       nil
     else
-      # First try to find a connected player
-      connected_player = Enum.find(players, fn p -> p["connected"] == true end)
+      # First try to find a connected player based on their order in the list
+      connected_players = Enum.filter(players, fn p -> p["connected"] == true end)
 
-      if connected_player do
-        # Found a connected player, use them
-        connected_player
+      if !Enum.empty?(connected_players) do
+        # If there are connected players, use the first one in the list
+        List.first(connected_players)
       else
-        # No connected players, sort by joined_at timestamp (oldest first)
-        Enum.sort_by(players, fn player ->
-          case player["joined_at"] do
-            nil -> DateTime.utc_now()  # Fallback for players without timestamp
-            joined_at -> joined_at
-          end
-        end, DateTime)
-        |> List.first()  # Take the player who's been in the lobby longest
+        # No connected players, just use the first player in the list
+        List.first(players)
       end
     end
   end
@@ -474,5 +544,11 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
 
   defp broadcast_host_migrated(new_leader_id, lobby) do
     PubSub.broadcast(@pubsub_module, "lobby:#{lobby.id}", {:host_migrated, new_leader_id, lobby})
+  end
+
+  defp broadcast_leadership_transferred(new_leader_id, lobby) do
+    PubSub.broadcast(@pubsub_module, "lobby:#{lobby.id}", {:leadership_transferred, new_leader_id, lobby})
+    # Also broadcast to the registry about the lobby update
+    broadcast_lobby_updated(lobby)
   end
 end
