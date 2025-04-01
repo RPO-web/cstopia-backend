@@ -167,6 +167,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     }
   end
 
+  @impl true
   def handle_event("select-lobby-type", %{"type" => type}, socket) do
     selected = if socket.assigns.selected_lobby_type == type, do: nil, else: type
 
@@ -193,6 +194,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     }
   end
 
+  @impl true
   def handle_event("create-lobby", params, socket) do
     Logger.debug("Create lobby event received with params: #{inspect(params)}")
     user = socket.assigns.current_user
@@ -226,6 +228,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
+  @impl true
   def handle_event("confirm-create-leave", _params, socket) do
     user = socket.assigns.current_user
     current_lobby = socket.assigns.current_lobby
@@ -248,50 +251,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
-  # Helper function to create a lobby
-  defp create_lobby(params, user, socket) do
-    Logger.debug("Creating lobby with params: #{inspect(params)}")
-
-    lobby_params = %{
-      "title" => params["title"],
-      "region" => params["region"],
-      "rank_required" => params["rank_required"],
-      "lobby_type" => params["lobby_type"],
-      "team_size" => params["team_size"],
-      "description" => params["description"],
-      "creator" => %{
-        "id" => user.id,
-        "username" => user.username,
-        "avatar" => user.avatar,
-        "discord_id" => user.discord_id
-      }
-    }
-    Logger.debug("Processed lobby params: #{inspect(lobby_params)}")
-
-    case LobbyManager.create_lobby(lobby_params) do
-      {:ok, lobby} ->
-        Logger.debug("Lobby created successfully with ID: #{lobby.id}")
-        {:noreply,
-         socket
-         |> assign(:show_team_conflict_modal, false)
-         |> assign(:is_creating_lobby, false)
-         |> assign(:create_lobby_params, nil)
-         |> put_flash(:info, "Team created successfully")
-         |> push_navigate(to: ~p"/teamfinder/#{lobby.id}")
-        }
-
-      {:error, reason} ->
-        Logger.error("Error creating lobby: #{inspect(reason)}")
-        {:noreply,
-         socket
-         |> assign(:show_team_conflict_modal, false)
-         |> assign(:is_creating_lobby, false)
-         |> assign(:create_lobby_params, nil)
-         |> put_flash(:error, "Error creating team: #{reason}")
-        }
-    end
-  end
-
+  @impl true
   def handle_event("join-lobby", %{"id" => lobby_id}, socket) do
     user = socket.assigns.current_user
 
@@ -318,6 +278,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
+  @impl true
   def handle_event("confirm-leave-join", %{"lobby_id" => new_lobby_id}, socket) do
     user = socket.assigns.current_user
     current_lobby = socket.assigns.current_lobby
@@ -337,93 +298,83 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
-  def handle_event("cancel-leave-join", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_team_conflict_modal, false)
-     |> assign(:joining_lobby_id, nil)
-     |> assign(:current_lobby, nil)
-    }
-  end
-
-  # Helper function to join a lobby
-  defp join_lobby(lobby_id, user, socket) do
-    player = %{
-      "id" => user.id,
-      "username" => user.username,
-      "avatar" => user.avatar,
-      "discord_id" => user.discord_id
-    }
-
-    case LobbyManager.join_lobby(lobby_id, player) do
-      {:ok, updated_lobby} ->
-        # Subscribe to the lobby channel when joining
-        if connected?(socket) do
-          PubSub.subscribe(CstopiaBackend.PubSub, "lobby:#{lobby_id}")
-        end
-
-        {:noreply,
-         socket
-         |> assign(:lobby, updated_lobby)
-         |> assign(:show_team_conflict_modal, false)
-         |> put_flash(:info, "Joined team successfully")
-        }
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(:show_team_conflict_modal, false)
-         |> put_flash(:error, "Error joining team: #{reason}")
-        }
-    end
-  end
-
+  @impl true
   def handle_event("leave-lobby", %{"id" => lobby_id}, socket) do
     user = socket.assigns.current_user
 
     if !user do
-      {:noreply, socket}
+      {:noreply, socket |> put_flash(:error, "You must be logged in to leave a team")}
     else
       case LobbyManager.leave_lobby(lobby_id, user.id) do
-        {:ok, :lobby_closed} ->
-          # Unsubscribe from the lobby channel when leaving and it's closed
-          if connected?(socket) do
-            PubSub.unsubscribe(CstopiaBackend.PubSub, "lobby:#{lobby_id}")
-          end
-
+        {:ok, _} ->
           {:noreply,
            socket
-           |> put_flash(:info, "Lobby closed")
-           |> push_navigate(to: ~p"/teamfinder")
-          }
-
-        {:ok, updated_lobby} ->
-          # Check if we're currently viewing the lobby page or the index page
-          if socket.assigns.live_action == :view && socket.assigns[:lobby] do
-            # We're on the lobby view page, just update the lobby
-            {:noreply,
-             socket
-             |> assign(:lobby, updated_lobby)
-             |> put_flash(:info, "Left team successfully")
-            }
-          else
-            # We're likely on the index page, redirect to index
-            {:noreply,
-             socket
-             |> put_flash(:info, "Left team successfully")
-             |> push_navigate(to: ~p"/teamfinder")
-            }
-          end
+           |> put_flash(:info, "Left team successfully")
+           |> push_navigate(to: ~p"/teamfinder")}
 
         {:error, reason} ->
           {:noreply,
            socket
-           |> put_flash(:error, "Error leaving team: #{reason}")
-          }
+           |> put_flash(:error, "Error leaving team: #{reason}")}
       end
     end
   end
 
+  @impl true
+  def handle_event("transfer-leadership", %{"id" => lobby_id, "player_id" => new_leader_id}, socket) do
+    user = socket.assigns.current_user
+
+    if !user do
+      {:noreply, socket |> put_flash(:error, "You must be logged in to perform this action")}
+    else
+      case LobbyManager.transfer_leadership(lobby_id, user.id, new_leader_id) do
+        {:ok, updated_lobby} ->
+          {:noreply,
+           socket
+           |> assign(:lobby, updated_lobby)
+           |> put_flash(:info, "Leadership transferred successfully")}
+
+        {:error, :not_authorized} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Only the team leader can transfer leadership")}
+
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Error transferring leadership: #{reason}")}
+      end
+    end
+  end
+
+  @impl true
+  def handle_event("update-player-positions", %{"positions" => positions}, socket) do
+    user = socket.assigns.current_user
+    lobby = socket.assigns.lobby
+
+    if !user || !lobby do
+      {:noreply, socket}
+    else
+      # Only the leader can reorder players
+      if user.id == lobby.leader_id do
+        # Convert the positions from strings to integers and create a map of player_id -> position
+        player_order = positions
+                       |> Enum.map(fn {player_id, position} -> {player_id, String.to_integer(position)} end)
+                       |> Enum.into(%{})
+
+        case LobbyManager.update_player_positions(lobby.id, user.id, player_order) do
+          {:ok, updated_lobby} ->
+            {:noreply, assign(socket, :lobby, updated_lobby)}
+          {:error, _reason} ->
+            {:noreply, socket}
+        end
+      else
+        {:noreply, socket}
+      end
+    end
+  end
+
+  @impl true
   def handle_event("kick-player", %{"id" => lobby_id, "player_id" => player_id, "should_block" => should_block}, socket) do
     user = socket.assigns.current_user
 
@@ -458,6 +409,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
+  @impl true
   def handle_event("delete-team", %{"id" => lobby_id}, socket) do
     user = socket.assigns.current_user
 
@@ -486,7 +438,56 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     handle_event("delete-team", params, socket)
   end
 
-  # Handling lobby registry updates
+  @impl true
+  def handle_info({:lobby_created, lobby}, socket) do
+    {:noreply,
+     socket
+     |> update(:lobbies, fn lobbies -> [lobby | lobbies] end)}
+  end
+
+  @impl true
+  def handle_info({:lobby_closed, closed_lobby}, socket) do
+    {:noreply,
+     socket
+     |> update(:lobbies, fn lobbies ->
+       Enum.reject(lobbies, &(&1.id == closed_lobby.id))
+     end)}
+  end
+
+  @impl true
+  def handle_info({:lobby_updated, updated_lobby}, socket) do
+    {:noreply,
+     socket
+     |> update(:lobbies, fn lobbies ->
+       Enum.map(lobbies, fn lobby ->
+         if lobby.id == updated_lobby.id, do: updated_lobby, else: lobby
+       end)
+     end)}
+  end
+
+  @impl true
+  def handle_info({:leadership_transferred, new_leader_id, updated_lobby}, socket) do
+    # Update the lobby if currently viewing it
+    if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
+      # Determine if the current user is the new leader
+      message = if socket.assigns[:current_user] && socket.assigns.current_user.id == new_leader_id do
+        "You are now the team leader"
+      else
+        # Find the username of the new leader
+        new_leader = Enum.find(updated_lobby.players, fn p -> p["id"] == new_leader_id end)
+        new_leader_name = if new_leader, do: new_leader["username"], else: "Another player"
+        "#{new_leader_name} is now the team leader"
+      end
+
+      {:noreply,
+       socket
+       |> assign(:lobby, updated_lobby)
+       |> put_flash(:info, message)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   @impl true
   def handle_info({:lobbies_updated, lobbies}, socket) do
     # Apply current filters to the updated lobby list
@@ -499,26 +500,6 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     )
 
     {:noreply, assign(socket, :lobbies, filtered_lobbies)}
-  end
-
-  @impl true
-  def handle_info({:lobby_created, _lobby}, socket) do
-    # We'll get an updated list from the registry, so no need to handle individually
-    {:noreply, socket}
-  end
-
-  @impl true
-  def handle_info({:lobby_closed, closed_lobby}, socket) do
-    # If viewing the closed lobby, redirect to index
-    if socket.assigns[:lobby] && socket.assigns.lobby.id == closed_lobby.id do
-      {:noreply,
-       socket
-       |> put_flash(:info, "This team has been closed")
-       |> push_navigate(to: ~p"/teamfinder")
-      }
-    else
-      {:noreply, socket}
-    end
   end
 
   @impl true
@@ -613,6 +594,50 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     # This forces the page to re-render, updating all the timer displays
     # without having to change any data - the timers will recalculate on render
     {:noreply, socket}
+  end
+
+  # Helper function to create a lobby
+  defp create_lobby(params, user, socket) do
+    Logger.debug("Creating lobby with params: #{inspect(params)}")
+
+    lobby_params = %{
+      "title" => params["title"],
+      "region" => params["region"],
+      "rank_required" => params["rank_required"],
+      "lobby_type" => params["lobby_type"],
+      "team_size" => params["team_size"],
+      "description" => params["description"],
+      "creator" => %{
+        "id" => user.id,
+        "username" => user.username,
+        "avatar" => user.avatar,
+        "discord_id" => user.discord_id
+      }
+    }
+    Logger.debug("Processed lobby params: #{inspect(lobby_params)}")
+
+    case LobbyManager.create_lobby(lobby_params) do
+      {:ok, lobby} ->
+        Logger.debug("Lobby created successfully with ID: #{lobby.id}")
+        {:noreply,
+         socket
+         |> assign(:show_team_conflict_modal, false)
+         |> assign(:is_creating_lobby, false)
+         |> assign(:create_lobby_params, nil)
+         |> put_flash(:info, "Team created successfully")
+         |> push_navigate(to: ~p"/teamfinder/#{lobby.id}")
+        }
+
+      {:error, reason} ->
+        Logger.error("Error creating lobby: #{inspect(reason)}")
+        {:noreply,
+         socket
+         |> assign(:show_team_conflict_modal, false)
+         |> assign(:is_creating_lobby, false)
+         |> assign(:create_lobby_params, nil)
+         |> put_flash(:error, "Error creating team: #{reason}")
+        }
+    end
   end
 
   # Format relative time for display
@@ -746,81 +771,35 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
   defp filter_by_selected_type(lobbies, selected_type), do:
     Enum.filter(lobbies, &(&1.lobby_type == selected_type))
 
-  # Add this with the other handle_event functions
-  def handle_event("transfer-leadership", %{"id" => lobby_id, "player_id" => new_leader_id}, socket) do
-    user = socket.assigns.current_user
+  # Helper function to join a lobby
+  defp join_lobby(lobby_id, user, socket) do
+    player = %{
+      "id" => user.id,
+      "username" => user.username,
+      "avatar" => user.avatar,
+      "discord_id" => user.discord_id
+    }
 
-    if !user do
-      {:noreply, socket |> put_flash(:error, "You must be logged in to perform this action")}
-    else
-      case LobbyManager.transfer_leadership(lobby_id, user.id, new_leader_id) do
-        {:ok, updated_lobby} ->
-          {:noreply,
-           socket
-           |> assign(:lobby, updated_lobby)
-           |> put_flash(:info, "Leadership transferred successfully")}
-
-        {:error, :not_authorized} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "Only the team leader can transfer leadership")}
-
-        {:error, reason} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "Error transferring leadership: #{reason}")}
-      end
-    end
-  end
-
-  # Add this with the other handle_info functions
-  @impl true
-  def handle_info({:leadership_transferred, new_leader_id, updated_lobby}, socket) do
-    # Update the lobby if currently viewing it
-    if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
-      # Determine if the current user is the new leader
-      message = if socket.assigns[:current_user] && socket.assigns.current_user.id == new_leader_id do
-        "You are now the team leader"
-      else
-        # Find the username of the new leader
-        new_leader = Enum.find(updated_lobby.players, fn p -> p["id"] == new_leader_id end)
-        new_leader_name = if new_leader, do: new_leader["username"], else: "Another player"
-        "#{new_leader_name} is now the team leader"
-      end
-
-      {:noreply,
-       socket
-       |> assign(:lobby, updated_lobby)
-       |> put_flash(:info, message)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  # Add this with the other handle_event functions
-  def handle_event("update-player-positions", %{"positions" => positions}, socket) do
-    user = socket.assigns.current_user
-    lobby = socket.assigns.lobby
-
-    if !user || !lobby do
-      {:noreply, socket}
-    else
-      # Only the leader can reorder players
-      if user.id == lobby.leader_id do
-        # Convert the positions from strings to integers and create a map of player_id -> position
-        player_order = positions
-                       |> Enum.map(fn {player_id, position} -> {player_id, String.to_integer(position)} end)
-                       |> Enum.into(%{})
-
-        case LobbyManager.update_player_positions(lobby.id, user.id, player_order) do
-          {:ok, updated_lobby} ->
-            {:noreply, assign(socket, :lobby, updated_lobby)}
-          {:error, _reason} ->
-            {:noreply, socket}
+    case LobbyManager.join_lobby(lobby_id, player) do
+      {:ok, updated_lobby} ->
+        # Subscribe to the lobby channel when joining
+        if connected?(socket) do
+          PubSub.subscribe(CstopiaBackend.PubSub, "lobby:#{lobby_id}")
         end
-      else
-        {:noreply, socket}
-      end
+
+        {:noreply,
+         socket
+         |> assign(:lobby, updated_lobby)
+         |> assign(:show_team_conflict_modal, false)
+         |> put_flash(:info, "Joined team successfully")
+        }
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:show_team_conflict_modal, false)
+         |> put_flash(:error, "Error joining team: #{reason}")
+        }
     end
   end
 end

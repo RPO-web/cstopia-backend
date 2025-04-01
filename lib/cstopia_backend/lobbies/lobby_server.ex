@@ -150,6 +150,58 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
   end
 
   @impl true
+  def handle_call({:transfer_leadership, current_leader_id, new_leader_id}, _from, state) do
+    # Verify the request is from current leader
+    if state.leader_id == current_leader_id do
+      # Verify the new leader is in the lobby
+      if Enum.any?(state.players, fn p -> p["id"] == new_leader_id end) do
+        updated_state = %{state | leader_id: new_leader_id}
+        # Broadcast the leadership transfer event
+        broadcast_leadership_transferred(new_leader_id, updated_state)
+        {:reply, {:ok, updated_state}, updated_state}
+      else
+        {:reply, {:error, "New leader must be in the lobby"}, state}
+      end
+    else
+      {:reply, {:error, :not_authorized}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:update_player_positions, leader_id, player_order}, _from, state) do
+    # Verify the request is from current leader
+    if state.leader_id == leader_id do
+      # Update the position for each player
+      updated_players = Enum.reduce(player_order, state.players, fn {player_id, position}, players ->
+        Enum.map(players, fn player ->
+          if player["id"] == player_id do
+            # Update the position, but leader is always position 0
+            position_value = if player_id == leader_id, do: 0, else: position
+            Map.put(player, "position", position_value)
+          else
+            player
+          end
+        end)
+      end)
+
+      # Sort the players by position
+      sorted_players = Enum.sort_by(updated_players, fn p ->
+        # Leader should always be at position 0
+        if p["id"] == state.leader_id, do: -1, else: Map.get(p, "position", 999)
+      end)
+
+      updated_state = %{state | players: sorted_players}
+
+      # Broadcast lobby updated
+      broadcast_lobby_updated(updated_state)
+
+      {:reply, {:ok, updated_state}, updated_state}
+    else
+      {:reply, {:error, :not_authorized}, state}
+    end
+  end
+
+  @impl true
   def handle_call({:join_lobby, player}, _from, state) do
     # Check if player is already in lobby or if lobby is full
     if Enum.any?(state.players, fn p -> p["id"] == player["id"] end) do
@@ -428,58 +480,6 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
   def handle_info(:shutdown, state) do
     Logger.info("Shutting down lobby #{state.id}")
     {:stop, :normal, state}
-  end
-
-  @impl true
-  def handle_call({:transfer_leadership, current_leader_id, new_leader_id}, _from, state) do
-    # Verify the request is from current leader
-    if state.leader_id == current_leader_id do
-      # Verify the new leader is in the lobby
-      if Enum.any?(state.players, fn p -> p["id"] == new_leader_id end) do
-        updated_state = %{state | leader_id: new_leader_id}
-        # Broadcast the leadership transfer event
-        broadcast_leadership_transferred(new_leader_id, updated_state)
-        {:reply, {:ok, updated_state}, updated_state}
-      else
-        {:reply, {:error, "New leader must be in the lobby"}, state}
-      end
-    else
-      {:reply, {:error, :not_authorized}, state}
-    end
-  end
-
-  @impl true
-  def handle_call({:update_player_positions, leader_id, player_order}, _from, state) do
-    # Verify the request is from current leader
-    if state.leader_id == leader_id do
-      # Update the position for each player
-      updated_players = Enum.reduce(player_order, state.players, fn {player_id, position}, players ->
-        Enum.map(players, fn player ->
-          if player["id"] == player_id do
-            # Update the position, but leader is always position 0
-            position_value = if player_id == leader_id, do: 0, else: position
-            Map.put(player, "position", position_value)
-          else
-            player
-          end
-        end)
-      end)
-
-      # Sort the players by position
-      sorted_players = Enum.sort_by(updated_players, fn p ->
-        # Leader should always be at position 0
-        if p["id"] == state.leader_id, do: -1, else: Map.get(p, "position", 999)
-      end)
-
-      updated_state = %{state | players: sorted_players}
-
-      # Broadcast lobby updated
-      broadcast_lobby_updated(updated_state)
-
-      {:reply, {:ok, updated_state}, updated_state}
-    else
-      {:reply, {:error, :not_authorized}, state}
-    end
   end
 
   # Helper for process registration
