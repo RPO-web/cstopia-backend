@@ -341,38 +341,13 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     {:noreply, assign(socket, :lobbies, filtered_lobbies)}
   end
 
-  # Helper to apply filters consistently
-  defp apply_filters(lobbies, region, rank, type, selected_type) do
-    lobbies
-    |> filter_by_region(region)
-    |> filter_by_rank(rank)
-    |> filter_by_type(type)
-    |> filter_by_selected_type(selected_type)
-  end
-
-  defp filter_by_region(lobbies, "All Regions"), do: lobbies
-  defp filter_by_region(lobbies, region), do:
-    Enum.filter(lobbies, &(&1.region == region))
-
-  defp filter_by_rank(lobbies, "All Ranks"), do: lobbies
-  defp filter_by_rank(lobbies, rank), do:
-    Enum.filter(lobbies, &(&1.rank_required == rank))
-
-  defp filter_by_type(lobbies, "All Types"), do: lobbies
-  defp filter_by_type(lobbies, type), do:
-    Enum.filter(lobbies, &(&1.lobby_type == type))
-
-  defp filter_by_selected_type(lobbies, nil), do: lobbies
-  defp filter_by_selected_type(lobbies, selected_type), do:
-    Enum.filter(lobbies, &(&1.lobby_type == selected_type))
-
-  # Keep individual lobby update handlers for specific updates
-
+  @impl true
   def handle_info({:lobby_created, _lobby}, socket) do
     # We'll get an updated list from the registry, so no need to handle individually
     {:noreply, socket}
   end
 
+  @impl true
   def handle_info({:lobby_closed, closed_lobby}, socket) do
     # If viewing the closed lobby, redirect to index
     if socket.assigns[:lobby] && socket.assigns.lobby.id == closed_lobby.id do
@@ -386,6 +361,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
+  @impl true
   def handle_info({:player_joined, _player, updated_lobby}, socket) do
     # Update the lobby if currently viewing it
     if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
@@ -395,6 +371,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
+  @impl true
   def handle_info({:player_rejoined, _player, updated_lobby}, socket) do
     # Update the lobby if currently viewing it
     if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
@@ -404,6 +381,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
+  @impl true
   def handle_info({:player_left, _player_id, updated_lobby}, socket) do
     # Update the lobby if currently viewing it
     if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
@@ -413,6 +391,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
+  @impl true
   def handle_info({:player_kicked, _player_id, updated_lobby}, socket) do
     # Update the lobby if currently viewing it
     if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
@@ -422,6 +401,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
+  @impl true
   def handle_info({:player_disconnected, player_id, updated_lobby}, socket) do
     # Update the lobby if currently viewing it
     if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
@@ -438,6 +418,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
+  @impl true
   def handle_info({:player_reconnected, _player_id, updated_lobby}, socket) do
     # Update the lobby if currently viewing it
     if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
@@ -447,6 +428,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
+  @impl true
   def handle_info({:host_migrated, new_leader_id, updated_lobby}, socket) do
     # Update the lobby if currently viewing it
     if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
@@ -539,4 +521,29 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
       "Offline"
     end
   end
+
+  # Helper to apply filters consistently
+  defp apply_filters(lobbies, region, rank, type, selected_type) do
+    lobbies
+    |> filter_by_region(region)
+    |> filter_by_rank(rank)
+    |> filter_by_type(type)
+    |> filter_by_selected_type(selected_type)
+  end
+
+  defp filter_by_region(lobbies, "All Regions"), do: lobbies
+  defp filter_by_region(lobbies, region), do:
+    Enum.filter(lobbies, &(&1.region == region))
+
+  defp filter_by_rank(lobbies, "All Ranks"), do: lobbies
+  defp filter_by_rank(lobbies, rank), do:
+    Enum.filter(lobbies, &(&1.rank_required == rank))
+
+  defp filter_by_type(lobbies, "All Types"), do: lobbies
+  defp filter_by_type(lobbies, type), do:
+    Enum.filter(lobbies, &(&1.lobby_type == type))
+
+  defp filter_by_selected_type(lobbies, nil), do: lobbies
+  defp filter_by_selected_type(lobbies, selected_type), do:
+    Enum.filter(lobbies, &(&1.lobby_type == selected_type))
 end
