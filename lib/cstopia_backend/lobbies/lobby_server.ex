@@ -3,6 +3,9 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
   alias Phoenix.PubSub
   require Logger
 
+  @pubsub_module CstopiaBackend.PubSub
+  @registry_name CstopiaBackend.Lobbies.LobbyProcessRegistry
+
   # Client API
 
   def start_link(lobby_id) do
@@ -42,7 +45,7 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     GenServer.call(via_tuple(lobby_id), {:set_lobby, lobby})
 
     # Broadcast creation of the new lobby
-    PubSub.broadcast(CstopiaBackend.PubSub, "lobbies", {:lobby_created, lobby})
+    broadcast_lobby_created(lobby)
 
     {:ok, lobby}
   end
@@ -78,7 +81,7 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     GenServer.cast(via_tuple(lobby_id), {:update_user_activity, user_id})
   end
 
-  # New function for kicking a player
+  # Kick a player
   def kick_player(lobby_id, player_id, should_block \\ false) do
     GenServer.call(via_tuple(lobby_id), {:kick_player, player_id, should_block})
   end
@@ -100,7 +103,7 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
       DynamicSupervisor.which_children(CstopiaBackend.Lobbies.LobbySupervisor)
       |> Enum.map(fn {_, pid, _, _} ->
         try do
-          lobby_id = Registry.keys(CstopiaBackend.Lobbies.LobbyRegistry, pid) |> List.first()
+          lobby_id = Registry.keys(@registry_name, pid) |> List.first()
           if lobby_id do
             GenServer.call(via_tuple(lobby_id), :get_lobby)
           else
@@ -160,11 +163,9 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
       updated_state = %{state | players: updated_players, inactive_timers: updated_timers}
 
       # Broadcast player rejoined
-      PubSub.broadcast(
-        CstopiaBackend.PubSub,
-        "lobby:#{state.id}",
-        {:player_rejoined, player, updated_state}
-      )
+      broadcast_player_rejoined(player, updated_state)
+      # Broadcast to registry that lobby was updated
+      broadcast_lobby_updated(updated_state)
 
       {:reply, {:ok, updated_state}, updated_state}
     else
@@ -186,11 +187,9 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
           updated_state = %{state | players: updated_players}
 
           # Broadcast player joined
-          PubSub.broadcast(
-            CstopiaBackend.PubSub,
-            "lobby:#{state.id}",
-            {:player_joined, player, updated_state}
-          )
+          broadcast_player_joined(player, updated_state)
+          # Broadcast to registry that lobby was updated
+          broadcast_lobby_updated(updated_state)
 
           {:reply, {:ok, updated_state}, updated_state}
         end
@@ -210,14 +209,10 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     # If lobby becomes empty, terminate it
     if updated_players == [] do
       # Broadcast lobby closed
-      PubSub.broadcast(
-        CstopiaBackend.PubSub,
-        "lobbies",
-        {:lobby_closed, state}
-      )
+      broadcast_lobby_closed(state)
 
-      # Stop the server process with a short delay to allow broadcasts to complete
-      Process.send_after(self(), :shutdown, 100)
+      # Increase delay to ensure broadcasts are delivered before termination
+      Process.send_after(self(), :shutdown, 500)
 
       {:reply, {:ok, :lobby_closed}, %{state | players: [], inactive_timers: %{}}}
     else
@@ -228,7 +223,7 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
         next_leader = find_next_host(updated_players)
 
         if next_leader do
-        new_leader_id = next_leader["id"]
+          new_leader_id = next_leader["id"]
 
           updated_state = %{state |
             players: updated_players,
@@ -236,23 +231,17 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
             inactive_timers: updated_timers
           }
 
-        # Broadcast host migration
-        PubSub.broadcast(
-          CstopiaBackend.PubSub,
-          "lobby:#{state.id}",
-          {:host_migrated, new_leader_id, updated_state}
-        )
+          # Broadcast host migration
+          broadcast_host_migrated(new_leader_id, updated_state)
+          # Broadcast to registry that lobby was updated
+          broadcast_lobby_updated(updated_state)
 
-        updated_state
-      else
+          updated_state
+        else
           # No eligible leader, close the lobby
-          PubSub.broadcast(
-            CstopiaBackend.PubSub,
-            "lobbies",
-            {:lobby_closed, state}
-          )
+          broadcast_lobby_closed(state)
 
-          Process.send_after(self(), :shutdown, 100)
+          Process.send_after(self(), :shutdown, 500)
           %{state | players: [], inactive_timers: %{}}
         end
       else
@@ -260,11 +249,9 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
       end
 
       # Broadcast player left
-      PubSub.broadcast(
-        CstopiaBackend.PubSub,
-        "lobby:#{state.id}",
-        {:player_left, player_id, updated_state}
-      )
+      broadcast_player_left(player_id, updated_state)
+      # Broadcast to registry that lobby was updated
+      broadcast_lobby_updated(updated_state)
 
       {:reply, {:ok, updated_state}, updated_state}
     end
@@ -297,11 +284,9 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
       }
 
       # Broadcast player kicked
-      PubSub.broadcast(
-        CstopiaBackend.PubSub,
-        "lobby:#{state.id}",
-        {:player_kicked, player_id, updated_state}
-      )
+      broadcast_player_kicked(player_id, updated_state)
+      # Broadcast to registry that lobby was updated
+      broadcast_lobby_updated(updated_state)
 
       {:reply, {:ok, updated_state}, updated_state}
     end
@@ -315,14 +300,10 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     end)
 
     # Broadcast lobby deleted
-    PubSub.broadcast(
-      CstopiaBackend.PubSub,
-      "lobbies",
-      {:lobby_closed, state}
-    )
+    broadcast_lobby_closed(state)
 
-    # Stop the server process with a short delay
-    Process.send_after(self(), :shutdown, 100)
+    # Increase delay to ensure broadcasts are delivered before termination
+    Process.send_after(self(), :shutdown, 500)
 
     {:reply, :ok, %{state | inactive_timers: %{}}}
   end
@@ -349,11 +330,9 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     updated_state = %{state | players: updated_players, inactive_timers: updated_timers}
 
     # Broadcast user disconnection
-    PubSub.broadcast(
-      CstopiaBackend.PubSub,
-      "lobby:#{state.id}",
-      {:player_disconnected, user_id, updated_state}
-    )
+    broadcast_player_disconnected(user_id, updated_state)
+    # Broadcast to registry that lobby was updated
+    broadcast_lobby_updated(updated_state)
 
     {:noreply, updated_state}
   end
@@ -379,11 +358,9 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     updated_state = %{state | players: updated_players, inactive_timers: updated_timers}
 
     # Broadcast user reconnection
-    PubSub.broadcast(
-      CstopiaBackend.PubSub,
-      "lobby:#{state.id}",
-      {:player_reconnected, user_id, updated_state}
-    )
+    broadcast_player_reconnected(user_id, updated_state)
+    # Broadcast to registry that lobby was updated
+    broadcast_lobby_updated(updated_state)
 
     {:noreply, updated_state}
   end
@@ -431,7 +408,7 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
 
   # Helper for process registration
   defp via_tuple(lobby_id) do
-    {:via, Registry, {CstopiaBackend.Lobbies.LobbyRegistry, lobby_id}}
+    {:via, Registry, {@registry_name, lobby_id}}
   end
 
   # Helper function to find the next host based on seniority
@@ -447,14 +424,55 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
         connected_player
       else
         # No connected players, sort by joined_at timestamp (oldest first)
-    Enum.sort_by(players, fn player ->
-      case player["joined_at"] do
-        nil -> DateTime.utc_now()  # Fallback for players without timestamp
-        joined_at -> joined_at
-      end
-    end, DateTime)
-    |> List.first()  # Take the player who's been in the lobby longest
+        Enum.sort_by(players, fn player ->
+          case player["joined_at"] do
+            nil -> DateTime.utc_now()  # Fallback for players without timestamp
+            joined_at -> joined_at
+          end
+        end, DateTime)
+        |> List.first()  # Take the player who's been in the lobby longest
       end
     end
+  end
+
+  # PubSub broadcast helpers
+  defp broadcast_lobby_created(lobby) do
+    PubSub.broadcast(@pubsub_module, "lobbies", {:lobby_created, lobby})
+  end
+
+  defp broadcast_lobby_closed(lobby) do
+    PubSub.broadcast(@pubsub_module, "lobbies", {:lobby_closed, lobby})
+  end
+
+  defp broadcast_lobby_updated(lobby) do
+    PubSub.broadcast(@pubsub_module, "lobbies", {:lobby_updated, lobby})
+  end
+
+  defp broadcast_player_joined(player, lobby) do
+    PubSub.broadcast(@pubsub_module, "lobby:#{lobby.id}", {:player_joined, player, lobby})
+  end
+
+  defp broadcast_player_rejoined(player, lobby) do
+    PubSub.broadcast(@pubsub_module, "lobby:#{lobby.id}", {:player_rejoined, player, lobby})
+  end
+
+  defp broadcast_player_left(player_id, lobby) do
+    PubSub.broadcast(@pubsub_module, "lobby:#{lobby.id}", {:player_left, player_id, lobby})
+  end
+
+  defp broadcast_player_kicked(player_id, lobby) do
+    PubSub.broadcast(@pubsub_module, "lobby:#{lobby.id}", {:player_kicked, player_id, lobby})
+  end
+
+  defp broadcast_player_disconnected(player_id, lobby) do
+    PubSub.broadcast(@pubsub_module, "lobby:#{lobby.id}", {:player_disconnected, player_id, lobby})
+  end
+
+  defp broadcast_player_reconnected(player_id, lobby) do
+    PubSub.broadcast(@pubsub_module, "lobby:#{lobby.id}", {:player_reconnected, player_id, lobby})
+  end
+
+  defp broadcast_host_migrated(new_leader_id, lobby) do
+    PubSub.broadcast(@pubsub_module, "lobby:#{lobby.id}", {:host_migrated, new_leader_id, lobby})
   end
 end

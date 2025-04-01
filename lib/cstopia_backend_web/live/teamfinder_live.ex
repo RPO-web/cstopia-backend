@@ -10,9 +10,10 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      PubSub.subscribe(CstopiaBackend.PubSub, "lobbies")
+      # Subscribe to the lobby registry for all lobby updates
+      PubSub.subscribe(CstopiaBackend.PubSub, "lobby_registry")
 
-      # If user is logged in, check if they're in any lobbies
+      # If user is logged in, check if they're in any lobbies and subscribe to each
       if socket.assigns[:current_user] do
         handle_user_connected(socket.assigns.current_user)
       end
@@ -28,6 +29,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
      |> assign(:filter_rank, "All Ranks")
      |> assign(:filter_type, "All Types")
      |> assign(:selected_lobby_type, nil)
+     |> assign(:loading, false)
     }
   end
 
@@ -85,6 +87,7 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     case LobbyManager.get_lobby(id) do
       {:ok, lobby} ->
         if connected?(socket) do
+          # Subscribe to this specific lobby for real-time updates
           PubSub.subscribe(CstopiaBackend.PubSub, "lobby:#{id}")
 
           # Update user activity in the lobby
@@ -111,45 +114,52 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
 
   @impl true
   def handle_event("filter-lobbies", %{"region" => region, "rank" => rank, "type" => type}, socket) do
-    criteria = %{}
+    socket = assign(socket, :loading, true)
 
-    criteria = if region != "All Regions", do: Map.put(criteria, :region, region), else: criteria
-    criteria = if rank != "All Ranks", do: Map.put(criteria, :rank_required, rank), else: criteria
-    criteria = if type != "All Types", do: Map.put(criteria, :lobby_type, type), else: criteria
+    # Create a more detailed filter function to run on the client rather than fetching all lobbies
+    filter_fn = fn lobby ->
+      (region == "All Regions" || lobby.region == region) &&
+      (rank == "All Ranks" || lobby.rank_required == rank) &&
+      (type == "All Types" || lobby.lobby_type == type)
+    end
 
-    lobbies =
-      if map_size(criteria) > 0 do
-        LobbyManager.filter_lobbies(criteria)
-      else
-        LobbyManager.list_lobbies()
-      end
+    # Filter the already loaded lobbies in memory
+    filtered_lobbies = socket.assigns.lobbies
+                      |> Enum.filter(filter_fn)
 
     {:noreply,
      socket
      |> assign(:filter_region, region)
      |> assign(:filter_rank, rank)
      |> assign(:filter_type, type)
-     |> assign(:lobbies, lobbies)
+     |> assign(:lobbies, filtered_lobbies)
+     |> assign(:loading, false)
     }
   end
 
   def handle_event("select-lobby-type", %{"type" => type}, socket) do
     selected = if socket.assigns.selected_lobby_type == type, do: nil, else: type
 
-    # Filter lobbies by type if a type is selected
-    lobbies =
-      if selected do
-        Enum.filter(LobbyManager.list_lobbies(), fn lobby ->
-          is_map(lobby) && Map.has_key?(lobby, :lobby_type) && lobby.lobby_type == selected
-        end)
-      else
-        LobbyManager.list_lobbies()
-      end
+    # Get the base list of lobbies, already filtered by region and rank
+    all_lobbies = LobbyManager.list_lobbies()
+
+    # Apply existing filters
+    region = socket.assigns.filter_region
+    rank = socket.assigns.filter_rank
+
+    filtered_lobbies = all_lobbies
+                      |> Enum.filter(fn lobby ->
+                        region_match = region == "All Regions" || lobby.region == region
+                        rank_match = rank == "All Ranks" || lobby.rank_required == rank
+                        type_match = selected == nil || lobby.lobby_type == selected
+
+                        region_match && rank_match && type_match
+                      end)
 
     {:noreply,
      socket
      |> assign(:selected_lobby_type, selected)
-     |> assign(:lobbies, lobbies)
+     |> assign(:lobbies, filtered_lobbies)
     }
   end
 
@@ -204,6 +214,11 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
 
       case LobbyManager.join_lobby(lobby_id, player) do
         {:ok, updated_lobby} ->
+          # Subscribe to the lobby channel when joining
+          if connected?(socket) do
+            PubSub.subscribe(CstopiaBackend.PubSub, "lobby:#{lobby_id}")
+          end
+
           {:noreply,
            socket
            |> assign(:lobby, updated_lobby)
@@ -227,6 +242,11 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     else
       case LobbyManager.leave_lobby(lobby_id, user.id) do
         {:ok, :lobby_closed} ->
+          # Unsubscribe from the lobby channel when leaving and it's closed
+          if connected?(socket) do
+            PubSub.unsubscribe(CstopiaBackend.PubSub, "lobby:#{lobby_id}")
+          end
+
           {:noreply,
            socket
            |> put_flash(:info, "Lobby closed")
@@ -306,43 +326,63 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
 
-  # Handling PubSub messages
-
+  # Handling lobby registry updates
   @impl true
-  def handle_info({:lobby_created, lobby}, socket) do
-    # Apply filters if needed
-    should_add = case socket.assigns.selected_lobby_type do
-      nil -> true
-      type -> lobby.lobby_type == type
-    end
+  def handle_info({:lobbies_updated, lobbies}, socket) do
+    # Apply current filters to the updated lobby list
+    filtered_lobbies = apply_filters(
+      lobbies,
+      socket.assigns.filter_region,
+      socket.assigns.filter_rank,
+      socket.assigns.filter_type,
+      socket.assigns.selected_lobby_type
+    )
 
-    lobbies =
-      if should_add do
-        [lobby | socket.assigns.lobbies]
-      else
-        socket.assigns.lobbies
-      end
+    {:noreply, assign(socket, :lobbies, filtered_lobbies)}
+  end
 
-    {:noreply, assign(socket, :lobbies, lobbies)}
+  # Helper to apply filters consistently
+  defp apply_filters(lobbies, region, rank, type, selected_type) do
+    lobbies
+    |> filter_by_region(region)
+    |> filter_by_rank(rank)
+    |> filter_by_type(type)
+    |> filter_by_selected_type(selected_type)
+  end
+
+  defp filter_by_region(lobbies, "All Regions"), do: lobbies
+  defp filter_by_region(lobbies, region), do:
+    Enum.filter(lobbies, &(&1.region == region))
+
+  defp filter_by_rank(lobbies, "All Ranks"), do: lobbies
+  defp filter_by_rank(lobbies, rank), do:
+    Enum.filter(lobbies, &(&1.rank_required == rank))
+
+  defp filter_by_type(lobbies, "All Types"), do: lobbies
+  defp filter_by_type(lobbies, type), do:
+    Enum.filter(lobbies, &(&1.lobby_type == type))
+
+  defp filter_by_selected_type(lobbies, nil), do: lobbies
+  defp filter_by_selected_type(lobbies, selected_type), do:
+    Enum.filter(lobbies, &(&1.lobby_type == selected_type))
+
+  # Keep individual lobby update handlers for specific updates
+
+  def handle_info({:lobby_created, _lobby}, socket) do
+    # We'll get an updated list from the registry, so no need to handle individually
+    {:noreply, socket}
   end
 
   def handle_info({:lobby_closed, closed_lobby}, socket) do
-    # Remove the closed lobby from the list
-    updated_lobbies = Enum.reject(
-      socket.assigns.lobbies,
-      fn lobby -> lobby.id == closed_lobby.id end
-    )
-
     # If viewing the closed lobby, redirect to index
     if socket.assigns[:lobby] && socket.assigns.lobby.id == closed_lobby.id do
       {:noreply,
        socket
-       |> assign(:lobbies, updated_lobbies)
        |> put_flash(:info, "This lobby has been closed")
        |> push_navigate(to: ~p"/teamfinder")
       }
     else
-      {:noreply, assign(socket, :lobbies, updated_lobbies)}
+      {:noreply, socket}
     end
   end
 

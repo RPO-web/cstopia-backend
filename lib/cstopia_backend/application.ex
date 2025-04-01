@@ -16,8 +16,11 @@ defmodule CstopiaBackend.Application do
       # {CstopiaBackend.Worker, arg},
       # Start to serve requests, typically the last entry
       CstopiaBackendWeb.Endpoint,
-      {Registry, keys: :unique, name: CstopiaBackend.Lobbies.LobbyRegistry},
-      CstopiaBackend.Lobbies.LobbySupervisor
+      {Registry, keys: :unique, name: CstopiaBackend.Lobbies.LobbyProcessRegistry},
+      CstopiaBackend.Lobbies.LobbySupervisor,
+      CstopiaBackend.Lobbies.LobbyRegistry,
+      # Add worker for lobby cleanup
+      {CstopiaBackend.Lobbies.LobbyCleanup, []}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

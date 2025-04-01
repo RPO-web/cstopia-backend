@@ -7,7 +7,7 @@ defmodule CstopiaBackendWeb.UserAuth do
 
   alias CstopiaBackend.Accounts.User
 
-  @max_age 60 * 60 * 24 * 60 # 60 days in seconds
+  @max_age 60 * 60 * 24 * 30 # 30 days in seconds
   @session_key "user_id"
   @remember_me_cookie "_cstopia_backend_web_user_remember_me"
 
