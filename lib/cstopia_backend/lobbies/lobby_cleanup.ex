@@ -45,7 +45,9 @@ defmodule CstopiaBackend.Lobbies.LobbyCleanup do
   """
   def clean_empty_lobbies do
     now = DateTime.utc_now()
-    lobbies = LobbyRegistry.get_lobbies()
+
+    # Get all lobbies
+    lobbies = get_lobbies()
 
     empty_lobbies = Enum.filter(lobbies, fn lobby ->
       # Check if the lobby is empty
@@ -66,7 +68,7 @@ defmodule CstopiaBackend.Lobbies.LobbyCleanup do
 
     Enum.each(empty_lobbies, fn lobby ->
       Logger.info("Cleaning up empty lobby: #{lobby.id}")
-      LobbyManager.delete_lobby(lobby.id)
+      delete_lobby(lobby.id)
     end)
 
     {:ok, count}
@@ -80,7 +82,9 @@ defmodule CstopiaBackend.Lobbies.LobbyCleanup do
   """
   def clean_inactive_lobbies do
     now = DateTime.utc_now()
-    lobbies = LobbyRegistry.get_lobbies()
+
+    # Get all lobbies
+    lobbies = get_lobbies()
 
     inactive_lobbies = Enum.filter(lobbies, fn lobby ->
       # Skip empty lobbies (handled by clean_empty_lobbies)
@@ -100,14 +104,7 @@ defmodule CstopiaBackend.Lobbies.LobbyCleanup do
         threshold_seconds = threshold_hours * 60 * 60
 
         # Find the most recent activity among all players
-        newest_activity = Enum.reduce(lobby.players, ~U[1970-01-01 00:00:00Z], fn player, newest ->
-          player_activity = Map.get(player, "last_activity")
-          if player_activity && DateTime.compare(player_activity, newest) == :gt do
-            player_activity
-          else
-            newest
-          end
-        end)
+        newest_activity = get_newest_activity(lobby.players)
 
         # If the newest activity is older than the threshold, consider inactive
         seconds_since_newest = DateTime.diff(now, newest_activity)
@@ -124,10 +121,44 @@ defmodule CstopiaBackend.Lobbies.LobbyCleanup do
       status = if has_connected, do: "connected", else: "disconnected"
 
       Logger.info("Cleaning up inactive lobby: #{lobby.id} with #{status} players")
-      LobbyManager.delete_lobby(lobby.id)
+      delete_lobby(lobby.id)
     end)
 
     {:ok, count}
+  end
+
+  # Helper function to get the newest activity timestamp from a list of players
+  defp get_newest_activity(players) do
+    Enum.reduce(players, ~U[1970-01-01 00:00:00Z], fn player, newest ->
+      player_activity = Map.get(player, "last_activity")
+      cond do
+        is_nil(player_activity) -> newest
+        DateTime.compare(player_activity, newest) == :gt -> player_activity
+        true -> newest
+      end
+    end)
+  end
+
+  # Helper function to safely get lobbies
+  defp get_lobbies do
+    LobbyRegistry.get_lobbies()
+  rescue
+    e ->
+      Logger.error("Failed to get lobbies for cleanup: #{inspect(e)}")
+      []
+  end
+
+  # Helper to safely delete a lobby
+  defp delete_lobby(lobby_id) do
+    LobbyManager.delete_lobby(lobby_id)
+  rescue
+    e ->
+      Logger.error("Failed to delete lobby #{lobby_id} during cleanup: #{inspect(e)}")
+      {:error, :delete_failed}
+  catch
+    :exit, reason ->
+      Logger.error("Exit when deleting lobby #{lobby_id}: #{inspect(reason)}")
+      {:error, :timeout}
   end
 
   @doc """

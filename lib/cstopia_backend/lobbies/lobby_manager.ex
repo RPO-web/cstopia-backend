@@ -45,83 +45,59 @@ defmodule CstopiaBackend.Lobbies.LobbyManager do
 
   # Join a lobby
   def join_lobby(lobby_id, player) do
-    case Registry.lookup(@process_registry, lobby_id) do
-      [{_pid, _}] ->
-        LobbyServer.join_lobby(lobby_id, player)
-      [] ->
-        {:error, :not_found}
-    end
+    LobbyServer.join_lobby(lobby_id, player)
   end
 
   # Leave a lobby
   def leave_lobby(lobby_id, player_id) do
-    case Registry.lookup(@process_registry, lobby_id) do
-      [{_pid, _}] ->
-        LobbyServer.leave_lobby(lobby_id, player_id)
-      [] ->
-        {:error, :not_found}
-    end
+    LobbyServer.leave_lobby(lobby_id, player_id)
   end
 
   # Mark a user as disconnected in a lobby
   def user_disconnected(lobby_id, user_id) do
-    with [{_pid, _}] <- Registry.lookup(@process_registry, lobby_id) do
-      LobbyServer.user_disconnected(lobby_id, user_id)
-      :ok
-    else
-      [] -> {:error, :not_found}
+    case LobbyServer.user_disconnected(lobby_id, user_id) do
+      {:error, _} -> {:error, :not_found}
+      _ -> :ok
     end
   end
 
   # Mark a user as reconnected to a lobby
   def user_reconnected(lobby_id, user_id) do
-    with [{_pid, _}] <- Registry.lookup(@process_registry, lobby_id) do
-      LobbyServer.user_reconnected(lobby_id, user_id)
-      :ok
-    else
-      [] -> {:error, :not_found}
+    case LobbyServer.user_reconnected(lobby_id, user_id) do
+      {:error, _} -> {:error, :not_found}
+      _ -> :ok
     end
   end
 
   # Update user activity timestamp in a lobby
   def update_user_activity(lobby_id, user_id) do
-    with [{_pid, _}] <- Registry.lookup(@process_registry, lobby_id) do
-      LobbyServer.update_user_activity(lobby_id, user_id)
-      :ok
-    else
-      [] -> {:error, :not_found}
+    case LobbyServer.update_user_activity(lobby_id, user_id) do
+      {:error, _} -> {:error, :not_found}
+      _ -> :ok
     end
   end
 
   # Check if a user is in a specific lobby - optimized to use ETS for faster lookup
   def user_in_lobby?(lobby_id, user_id) do
-    try do
-      case :ets.lookup(@ets_table, lobby_id) do
-        [{^lobby_id, lobby}] ->
-          Enum.any?(lobby.players, fn player ->
-            is_map(player) && Map.has_key?(player, "id") && player["id"] == user_id
-          end)
-        [] ->
-          # Fall back to direct lookup if not in ETS
-          case get_lobby(lobby_id) do
-            {:ok, lobby} ->
-              Enum.any?(lobby.players, fn player ->
-                is_map(player) && Map.has_key?(player, "id") && player["id"] == user_id
-              end)
-            _ -> false
-          end
-      end
-    rescue
-      # Handle case where ETS table doesn't exist yet
-      _ ->
-    case get_lobby(lobby_id) do
-      {:ok, lobby} ->
+    # First attempt to use ETS for fastest lookup
+    case :ets.lookup(@ets_table, lobby_id) do
+      [{^lobby_id, lobby}] ->
         Enum.any?(lobby.players, fn player ->
           is_map(player) && Map.has_key?(player, "id") && player["id"] == user_id
         end)
-      _ -> false
+      [] ->
+        # Fall back to direct lookup if not in ETS
+        case get_lobby(lobby_id) do
+          {:ok, lobby} ->
+            Enum.any?(lobby.players, fn player ->
+              is_map(player) && Map.has_key?(player, "id") && player["id"] == user_id
+            end)
+          _ -> false
         end
     end
+  rescue
+    # Handle case where ETS table doesn't exist yet
+    _ -> LobbyServer.user_in_lobby?(lobby_id, user_id)
   end
 
   # Find all lobbies a user is in - now uses dedicated ETS table for user-to-lobby mapping
@@ -143,12 +119,7 @@ defmodule CstopiaBackend.Lobbies.LobbyManager do
 
   # Delete a lobby
   def delete_lobby(lobby_id) do
-    case Registry.lookup(@process_registry, lobby_id) do
-      [{_pid, _}] ->
-        LobbyServer.delete_lobby(lobby_id)
-      [] ->
-        {:error, :not_found}
-    end
+    LobbyServer.delete_lobby(lobby_id)
   end
 
   # Transfer leadership to another player (only current leader can do this)

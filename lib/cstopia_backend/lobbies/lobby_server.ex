@@ -52,82 +52,111 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
   end
 
   def get_lobby(lobby_id) do
-    GenServer.call(via_tuple(lobby_id), :get_lobby)
+    case Registry.lookup(@registry_name, lobby_id) do
+      [{pid, _}] -> GenServer.call(pid, :get_lobby)
+      [] -> {:error, :lobby_not_found}
+    end
   end
 
   def join_lobby(lobby_id, player) do
-    GenServer.call(via_tuple(lobby_id), {:join_lobby, player})
+    case Registry.lookup(@registry_name, lobby_id) do
+      [{pid, _}] -> GenServer.call(pid, {:join_lobby, player})
+      [] -> {:error, :lobby_not_found}
+    end
   end
 
   def leave_lobby(lobby_id, player_id) do
-    GenServer.call(via_tuple(lobby_id), {:leave_lobby, player_id})
+    case Registry.lookup(@registry_name, lobby_id) do
+      [{pid, _}] -> GenServer.call(pid, {:leave_lobby, player_id})
+      [] -> {:error, :lobby_not_found}
+    end
   end
 
   def delete_lobby(lobby_id) do
-    GenServer.call(via_tuple(lobby_id), :delete_lobby)
+    case Registry.lookup(@registry_name, lobby_id) do
+      [{pid, _}] -> GenServer.call(pid, :delete_lobby)
+      [] -> {:error, :lobby_not_found}
+    end
   end
 
   # Mark user as disconnected
   def user_disconnected(lobby_id, user_id) do
-    GenServer.cast(via_tuple(lobby_id), {:user_disconnected, user_id})
+    case Registry.lookup(@registry_name, lobby_id) do
+      [{pid, _}] -> GenServer.cast(pid, {:user_disconnected, user_id})
+      [] -> {:error, :lobby_not_found}
+    end
   end
 
   # Mark user as reconnected
   def user_reconnected(lobby_id, user_id) do
-    GenServer.cast(via_tuple(lobby_id), {:user_reconnected, user_id})
+    case Registry.lookup(@registry_name, lobby_id) do
+      [{pid, _}] -> GenServer.cast(pid, {:user_reconnected, user_id})
+      [] -> {:error, :lobby_not_found}
+    end
   end
 
   # Update user's activity timestamp
   def update_user_activity(lobby_id, user_id) do
-    GenServer.cast(via_tuple(lobby_id), {:update_user_activity, user_id})
+    case Registry.lookup(@registry_name, lobby_id) do
+      [{pid, _}] -> GenServer.cast(pid, {:update_user_activity, user_id})
+      [] -> {:error, :lobby_not_found}
+    end
   end
 
   # Kick a player
   def kick_player(lobby_id, player_id, should_block \\ false) do
-    GenServer.call(via_tuple(lobby_id), {:kick_player, player_id, should_block})
+    case Registry.lookup(@registry_name, lobby_id) do
+      [{pid, _}] -> GenServer.call(pid, {:kick_player, player_id, should_block})
+      [] -> {:error, :lobby_not_found}
+    end
   end
 
   # Transfer leadership to another player
   def transfer_leadership(lobby_id, current_leader_id, new_leader_id) do
-    GenServer.call(via_tuple(lobby_id), {:transfer_leadership, current_leader_id, new_leader_id})
+    case Registry.lookup(@registry_name, lobby_id) do
+      [{pid, _}] -> GenServer.call(pid, {:transfer_leadership, current_leader_id, new_leader_id})
+      [] -> {:error, :lobby_not_found}
+    end
   end
 
   # Check if a user is in a specific lobby
   def user_in_lobby?(lobby_id, user_id) do
-    try do
-      lobby = get_lobby(lobby_id)
-      Enum.any?(lobby.players, fn p -> p["id"] == user_id end)
-    catch
-      :exit, _ -> false
+    case Registry.lookup(@registry_name, lobby_id) do
+      [{pid, _}] ->
+        lobby = GenServer.call(pid, :get_lobby)
+        Enum.any?(lobby.players, fn p -> p["id"] == user_id end)
+      [] ->
+        false
     end
   end
 
   # Get all current lobbies
   def list_lobbies do
-    # Get all active lobby processes
-    try do
-      DynamicSupervisor.which_children(CstopiaBackend.Lobbies.LobbySupervisor)
-      |> Enum.map(fn {_, pid, _, _} ->
-        try do
-          lobby_id = Registry.keys(@registry_name, pid) |> List.first()
-          if lobby_id do
-            GenServer.call(via_tuple(lobby_id), :get_lobby)
-          else
-            nil
+    DynamicSupervisor.which_children(CstopiaBackend.Lobbies.LobbySupervisor)
+    |> Enum.flat_map(fn {_, pid, _, _} ->
+      case Registry.keys(@registry_name, pid) do
+        [lobby_id] ->
+          case GenServer.call(via_tuple(lobby_id), :get_lobby, 5000) do
+            lobby when is_map(lobby) -> [lobby]
+            _ -> []
           end
-        catch
-          :exit, _ -> nil
-        end
-      end)
-      |> Enum.reject(&is_nil/1)
-    catch
-      _, _ -> []
-    end
+        _ -> []
+      end
+    end)
+  rescue
+    # Handle supervisor errors (like supervisor not started)
+    _ -> []
+  catch
+    # Handle timeout errors
+    :exit, _ -> []
   end
 
   # Update player positions in the lobby
   def update_player_positions(lobby_id, leader_id, player_order) do
-    GenServer.call(via_tuple(lobby_id), {:update_player_positions, leader_id, player_order})
+    case Registry.lookup(@registry_name, lobby_id) do
+      [{pid, _}] -> GenServer.call(pid, {:update_player_positions, leader_id, player_order})
+      [] -> {:error, :lobby_not_found}
+    end
   end
 
   # Server Callbacks
