@@ -19,6 +19,8 @@ defmodule CstopiaBackend.Application do
       {Registry, keys: :unique, name: CstopiaBackend.Lobbies.LobbyProcessRegistry},
       CstopiaBackend.Lobbies.LobbySupervisor,
       CstopiaBackend.Lobbies.LobbyRegistry,
+      # Add Presence for tracking online users
+      CstopiaBackend.Lobbies.Presence,
       # Add worker for lobby cleanup
       {CstopiaBackend.Lobbies.LobbyCleanup, []}
     ]

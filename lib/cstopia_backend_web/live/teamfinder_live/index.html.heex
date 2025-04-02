@@ -92,6 +92,46 @@
                 <span>Tournament (<%= Enum.count(@lobbies, fn l -> is_map(l) && Map.has_key?(l, :lobby_type) && l.lobby_type == "Tournament" end) %>)</span>
               </button>
             </div>
+
+            <!-- Online Players Panel -->
+            <div class="mt-6 px-4">
+              <div class="flex items-center justify-between">
+                <h3 class="text-md font-medium text-white">Online Players</h3>
+                <span class="bg-green-500 text-white text-xs font-medium px-2 py-1 rounded-full"><%= @online_count %></span>
+              </div>
+              <div class="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                <%= if Enum.empty?(@online_users) do %>
+                  <p class="text-gray-500 text-sm">No players online</p>
+                <% else %>
+                  <%= for {user_id, presence_data} <- @online_users do %>
+                    <% metas = List.first(presence_data.metas) %>
+                    <div class="flex items-center py-2 px-2 rounded hover:bg-gray-700">
+                      <div class="relative">
+                        <div class="h-8 w-8 rounded-full overflow-hidden mr-2 bg-gray-600">
+                          <img 
+                            src={"https://cdn.discordapp.com/avatars/#{metas.discord_id}/#{metas.avatar}.png"} 
+                            alt={metas.username} 
+                            class="w-full h-full object-cover"
+                            onerror={"this.onerror=null; this.src='https://ui-avatars.com/api/?name=#{metas.username}&background=random';"}
+                          />
+                        </div>
+                        <span class="absolute bottom-0 right-0 block h-2 w-2 rounded-full bg-green-400 ring-1 ring-white"></span>
+                      </div>
+                      <div class="ml-2">
+                        <p class="text-sm font-medium text-white"><%= metas.username %></p>
+                        <p class="text-xs text-gray-400">
+                          <%= if Map.has_key?(metas, :page) do %>
+                            <%= metas.page %>
+                          <% else %>
+                            Online
+                          <% end %>
+                        </p>
+                      </div>
+                    </div>
+                  <% end %>
+                <% end %>
+              </div>
+            </div>
           </div>
           
           <!-- Middle - Lobby listing -->

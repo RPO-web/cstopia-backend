@@ -1,6 +1,7 @@
 defmodule CstopiaBackendWeb.TeamfinderLive do
   use CstopiaBackendWeb, :live_view
   alias CstopiaBackend.Lobbies.LobbyManager
+  alias CstopiaBackend.Lobbies.Presence
   alias Phoenix.PubSub
   require Logger
 
@@ -16,6 +17,14 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
       # If user is logged in, check if they're in any lobbies and subscribe to each
       if socket.assigns[:current_user] do
         handle_user_connected(socket.assigns.current_user)
+
+        # Track user presence on teamfinder pages
+        Presence.subscribe_to_lobbies_presence()
+        Presence.track_user_in_lobbies(socket.assigns.current_user.id, %{
+          username: socket.assigns.current_user.username,
+          avatar: socket.assigns.current_user.avatar,
+          discord_id: socket.assigns.current_user.discord_id
+        })
       end
 
       # Start a timer to refresh the disconnect countdown every second
@@ -24,6 +33,10 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
 
     # The current_user should already be assigned by the auth hook
     Logger.debug("Current user in TeamfinderLive: #{inspect(socket.assigns[:current_user])}")
+
+    # Get the list of online users via Presence
+    online_users = Presence.list_users_in_lobbies()
+    online_count = Presence.count_users_in_lobbies()
 
     {:ok,
      socket
@@ -38,6 +51,8 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
      |> assign(:current_lobby, nil)
      |> assign(:is_creating_lobby, false)
      |> assign(:create_lobby_params, nil)
+     |> assign(:online_users, online_users)
+     |> assign(:online_count, online_count)
     }
   end
 
@@ -51,6 +66,19 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
       LobbyManager.user_reconnected(lobby.id, user.id)
       PubSub.subscribe(CstopiaBackend.PubSub, "lobby:#{lobby.id}")
     end)
+  end
+
+  # Handle presence updates
+  @impl true
+  def handle_info(%{event: "presence_diff"}, socket) do
+    online_users = Presence.list_users_in_lobbies()
+    online_count = Presence.count_users_in_lobbies()
+
+    {:noreply,
+     socket
+     |> assign(:online_users, online_users)
+     |> assign(:online_count, online_count)
+    }
   end
 
   @impl true
@@ -554,6 +582,19 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     {:noreply, socket}
   end
 
+  # Handle presence updates
+  @impl true
+  def handle_info(%{event: "presence_diff"}, socket) do
+    online_users = Presence.list_users_in_lobbies()
+    online_count = Presence.count_users_in_lobbies()
+
+    {:noreply,
+     socket
+     |> assign(:online_users, online_users)
+     |> assign(:online_count, online_count)
+    }
+  end
+
   # Helper to update the current lobby if it matches the updated lobby
   defp update_current_lobby(socket, lobby) do
     if socket.assigns[:lobby] && socket.assigns.lobby.id == lobby.id do
@@ -565,9 +606,63 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
 
   @impl true
   def handle_info(:update_disconnect_timers, socket) do
-    # This forces the page to re-render, updating all the timer displays
-    # without having to change any data - the timers will recalculate on render
+    # Force the view to re-render and update all disconnect timers
     {:noreply, socket}
+  end
+
+  # Handle all other messages (including lobby updates from PubSub)
+  @impl true
+  def handle_info(msg, socket) do
+    case socket.assigns.live_action do
+      :index ->
+        # Handle lobby updates
+        case msg do
+          # Keep existing message handlers
+          {:lobby_created, lobby} ->
+            {:noreply, assign(socket, :lobbies, [lobby | socket.assigns.lobbies])}
+
+          {:lobby_updated, updated_lobby} ->
+            updated_lobbies = Enum.map(socket.assigns.lobbies, fn lobby ->
+              if lobby.id == updated_lobby.id, do: updated_lobby, else: lobby
+            end)
+            {:noreply, assign(socket, :lobbies, updated_lobbies)}
+
+          {:lobby_closed, lobby_id} ->
+            filtered_lobbies = Enum.reject(socket.assigns.lobbies, fn lobby -> lobby.id == lobby_id end)
+            {:noreply, assign(socket, :lobbies, filtered_lobbies)}
+
+          _ ->
+            {:noreply, socket}
+        end
+
+      :view ->
+        # Handle specific lobby updates in the view page
+        case msg do
+          {:lobby_updated, updated_lobby} ->
+            if socket.assigns.lobby.id == updated_lobby.id do
+              {:noreply, assign(socket, :lobby, updated_lobby)}
+            else
+              {:noreply, socket}
+            end
+
+          {:lobby_closed, lobby_id} ->
+            if socket.assigns.lobby.id == lobby_id do
+              {:noreply,
+               socket
+               |> put_flash(:error, "This team has been closed by the leader.")
+               |> push_navigate(to: ~p"/teamfinder")
+              }
+            else
+              {:noreply, socket}
+            end
+
+          _ ->
+            {:noreply, socket}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   # Helper function to create a lobby

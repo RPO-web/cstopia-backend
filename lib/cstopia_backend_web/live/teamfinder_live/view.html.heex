@@ -81,6 +81,47 @@
                   <p class="text-sm text-gray-600"><%= @lobby.description %></p>
                 </div>
               </div>
+              
+              <!-- Online Players Panel -->
+              <div>
+                <h2 class="text-lg font-medium text-gray-900 mb-2">Online Players (<%= @online_count %>)</h2>
+                <div class="bg-gray-50 rounded-lg p-4">
+                  <div class="max-h-48 overflow-y-auto">
+                    <%= if Enum.empty?(@online_users) do %>
+                      <p class="text-sm text-gray-500">No players online</p>
+                    <% else %>
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <%= for {user_id, presence_data} <- @online_users do %>
+                          <% metas = List.first(presence_data.metas) %>
+                          <div class="flex items-center p-2 rounded bg-white border border-gray-100">
+                            <div class="relative">
+                              <div class="h-8 w-8 rounded-full overflow-hidden mr-2">
+                                <img 
+                                  src={"https://cdn.discordapp.com/avatars/#{metas.discord_id}/#{metas.avatar}.png"} 
+                                  alt={metas.username} 
+                                  class="w-full h-full object-cover"
+                                  onerror={"this.onerror=null; this.src='https://ui-avatars.com/api/?name=#{metas.username}&background=random';"}
+                                />
+                              </div>
+                              <span class="absolute bottom-0 right-0 block h-2 w-2 rounded-full bg-green-400 ring-1 ring-white"></span>
+                            </div>
+                            <div class="ml-2">
+                              <p class="text-sm font-medium text-gray-900"><%= metas.username %></p>
+                              <p class="text-xs text-gray-500">
+                                <%= if Map.has_key?(metas, :page) do %>
+                                  <%= metas.page %>
+                                <% else %>
+                                  Online
+                                <% end %>
+                              </p>
+                            </div>
+                          </div>
+                        <% end %>
+                      </div>
+                    <% end %>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Players -->
