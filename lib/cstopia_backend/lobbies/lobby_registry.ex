@@ -3,6 +3,9 @@ defmodule CstopiaBackend.Lobbies.LobbyRegistry do
   require Logger
   alias Phoenix.PubSub
 
+  @ets_table :lobby_registry_cache
+  @user_lobby_table :user_lobby_mapping
+
   # Client API
   def start_link(_) do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
@@ -17,17 +20,49 @@ defmodule CstopiaBackend.Lobbies.LobbyRegistry do
   end
 
   def get_lobby(lobby_id) do
-    GenServer.call(__MODULE__, {:get_lobby, lobby_id})
+    # Try ETS lookup first for performance
+    case :ets.lookup(@ets_table, lobby_id) do
+      [{^lobby_id, lobby}] -> {:ok, lobby}
+      [] -> GenServer.call(__MODULE__, {:get_lobby, lobby_id})
+    end
+  end
+
+  # Fast lookup for finding lobbies a user is in
+  def get_user_lobbies(user_id) do
+    case :ets.lookup(@user_lobby_table, user_id) do
+      [{^user_id, lobby_ids}] ->
+        # Get all the lobbies from the lobby table
+        lobby_ids
+        |> Enum.map(fn id ->
+          case :ets.lookup(@ets_table, id) do
+            [{^id, lobby}] -> lobby
+            [] -> nil
+          end
+        end)
+        |> Enum.reject(&is_nil/1)
+      [] -> []
+    end
   end
 
   # Server callbacks
   @impl true
   def init(:ok) do
+    # Create ETS table for fast lookups
+    :ets.new(@ets_table, [:set, :public, :named_table])
+    # Create ETS table for user-to-lobby mapping
+    :ets.new(@user_lobby_table, [:set, :public, :named_table])
+
     # Monitor existing lobbies
     lobbies =
       CstopiaBackend.Lobbies.LobbyServer.list_lobbies()
       |> Enum.map(fn lobby -> {lobby.id, lobby} end)
       |> Map.new()
+
+    # Initialize ETS tables with existing lobbies
+    Enum.each(lobbies, fn {id, lobby} ->
+      :ets.insert(@ets_table, {id, lobby})
+      update_user_lobby_mapping(lobby)
+    end)
 
     # Subscribe to lobby events
     PubSub.subscribe(CstopiaBackend.PubSub, "lobbies")
@@ -37,6 +72,8 @@ defmodule CstopiaBackend.Lobbies.LobbyRegistry do
 
   @impl true
   def handle_call(:get_lobbies, _from, state) do
+    # For very fast reads, we could use :ets.tab2list(@ets_table),
+    # but for now we'll stick with the state for consistency
     {:reply, Map.values(state.lobbies), state}
   end
 
@@ -65,6 +102,10 @@ defmodule CstopiaBackend.Lobbies.LobbyRegistry do
   # Handle lobby lifecycle events
   @impl true
   def handle_info({:lobby_created, lobby}, state) do
+    # Update both state and ETS caches
+    :ets.insert(@ets_table, {lobby.id, lobby})
+    update_user_lobby_mapping(lobby)
+
     updated_lobbies = Map.put(state.lobbies, lobby.id, lobby)
     broadcast_lobbies_updated(updated_lobbies)
     {:noreply, %{state | lobbies: updated_lobbies}}
@@ -72,6 +113,10 @@ defmodule CstopiaBackend.Lobbies.LobbyRegistry do
 
   @impl true
   def handle_info({:lobby_closed, lobby}, state) do
+    # Remove from both state and ETS caches
+    :ets.delete(@ets_table, lobby.id)
+    remove_user_lobby_mapping(lobby)
+
     updated_lobbies = Map.delete(state.lobbies, lobby.id)
     broadcast_lobbies_updated(updated_lobbies)
     {:noreply, %{state | lobbies: updated_lobbies}}
@@ -79,6 +124,10 @@ defmodule CstopiaBackend.Lobbies.LobbyRegistry do
 
   @impl true
   def handle_info({:lobby_updated, lobby}, state) do
+    # Update both state and ETS caches
+    :ets.insert(@ets_table, {lobby.id, lobby})
+    update_user_lobby_mapping(lobby)
+
     updated_lobbies = Map.put(state.lobbies, lobby.id, lobby)
     broadcast_lobbies_updated(updated_lobbies)
     {:noreply, %{state | lobbies: updated_lobbies}}
@@ -86,6 +135,9 @@ defmodule CstopiaBackend.Lobbies.LobbyRegistry do
 
   @impl true
   def handle_info({:player_joined, _player, lobby}, state) do
+    :ets.insert(@ets_table, {lobby.id, lobby})
+    update_user_lobby_mapping(lobby)
+
     updated_lobbies = Map.put(state.lobbies, lobby.id, lobby)
     broadcast_lobbies_updated(updated_lobbies)
     {:noreply, %{state | lobbies: updated_lobbies}}
@@ -93,6 +145,9 @@ defmodule CstopiaBackend.Lobbies.LobbyRegistry do
 
   @impl true
   def handle_info({:player_left, _player_id, lobby}, state) do
+    :ets.insert(@ets_table, {lobby.id, lobby})
+    update_user_lobby_mapping(lobby)
+
     updated_lobbies = Map.put(state.lobbies, lobby.id, lobby)
     broadcast_lobbies_updated(updated_lobbies)
     {:noreply, %{state | lobbies: updated_lobbies}}
@@ -100,6 +155,9 @@ defmodule CstopiaBackend.Lobbies.LobbyRegistry do
 
   @impl true
   def handle_info({:player_kicked, _player_id, lobby}, state) do
+    :ets.insert(@ets_table, {lobby.id, lobby})
+    update_user_lobby_mapping(lobby)
+
     updated_lobbies = Map.put(state.lobbies, lobby.id, lobby)
     broadcast_lobbies_updated(updated_lobbies)
     {:noreply, %{state | lobbies: updated_lobbies}}
@@ -107,6 +165,7 @@ defmodule CstopiaBackend.Lobbies.LobbyRegistry do
 
   @impl true
   def handle_info({:host_migrated, _new_leader_id, lobby}, state) do
+    :ets.insert(@ets_table, {lobby.id, lobby})
     updated_lobbies = Map.put(state.lobbies, lobby.id, lobby)
     broadcast_lobbies_updated(updated_lobbies)
     {:noreply, %{state | lobbies: updated_lobbies}}
@@ -119,5 +178,54 @@ defmodule CstopiaBackend.Lobbies.LobbyRegistry do
       "lobby_registry",
       {:lobbies_updated, Map.values(lobbies)}
     )
+  end
+
+  # Helper to update the user-to-lobby mapping
+  defp update_user_lobby_mapping(lobby) do
+    # First, remove all existing mappings for this lobby
+    remove_user_lobby_mapping(lobby)
+
+    # Then add new mappings for all players in the lobby
+    if Map.has_key?(lobby, :players) && is_list(lobby.players) do
+      Enum.each(lobby.players, fn player ->
+        user_id = player["id"] || player[:id]
+        if user_id do
+          case :ets.lookup(@user_lobby_table, user_id) do
+            [{^user_id, lobby_ids}] ->
+              # Update existing mapping
+              :ets.insert(@user_lobby_table, {user_id, [lobby.id | lobby_ids] |> Enum.uniq})
+            [] ->
+              # Create new mapping
+              :ets.insert(@user_lobby_table, {user_id, [lobby.id]})
+          end
+        end
+      end)
+    end
+  end
+
+  # Helper to remove user-to-lobby mappings for a lobby
+  defp remove_user_lobby_mapping(lobby) do
+    if Map.has_key?(lobby, :players) && is_list(lobby.players) do
+      Enum.each(lobby.players, fn player ->
+        user_id = player["id"] || player[:id]
+        if user_id do
+          case :ets.lookup(@user_lobby_table, user_id) do
+            [{^user_id, lobby_ids}] ->
+              # Remove this lobby from the list
+              updated_ids = Enum.reject(lobby_ids, fn id -> id == lobby.id end)
+              if Enum.empty?(updated_ids) do
+                # If no lobbies left, remove the entry
+                :ets.delete(@user_lobby_table, user_id)
+              else
+                # Update with remaining lobbies
+                :ets.insert(@user_lobby_table, {user_id, updated_ids})
+              end
+            [] ->
+              # No mapping exists, do nothing
+              :ok
+          end
+        end
+      end)
+    end
   end
 end

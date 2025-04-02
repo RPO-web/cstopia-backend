@@ -4,6 +4,7 @@ defmodule CstopiaBackend.Lobbies.LobbyManager do
   require Logger
 
   @process_registry CstopiaBackend.Lobbies.LobbyProcessRegistry
+  @ets_table :lobby_registry_cache
 
   # Create a new lobby with the given parameters
   def create_lobby(params) do
@@ -15,9 +16,31 @@ defmodule CstopiaBackend.Lobbies.LobbyManager do
     LobbyRegistry.get_lobbies()
   end
 
-  # Get a specific lobby
+  # Fast lookup for lobby existence check (no full state needed)
+  def lobby_exists?(lobby_id) do
+    case Registry.lookup(@process_registry, lobby_id) do
+      [{_pid, _}] -> true
+      [] -> false
+    end
+  end
+
+  # Get a specific lobby - use ETS when available
   def get_lobby(lobby_id) do
     LobbyRegistry.get_lobby(lobby_id)
+  end
+
+  # Fast lookup for active lobby count
+  def active_lobby_count do
+    :ets.info(@ets_table, :size)
+  end
+
+  # Efficient batch update of user activity in all their lobbies
+  def update_user_activity_all_lobbies(user_id) do
+    # Find all lobbies the user is in
+    find_user_lobbies(user_id)
+    |> Enum.each(fn lobby ->
+      update_user_activity(lobby.id, user_id)
+    end)
   end
 
   # Join a lobby
@@ -70,27 +93,41 @@ defmodule CstopiaBackend.Lobbies.LobbyManager do
     end
   end
 
-  # Check if a user is in a specific lobby
+  # Check if a user is in a specific lobby - optimized to use ETS for faster lookup
   def user_in_lobby?(lobby_id, user_id) do
+    try do
+      case :ets.lookup(@ets_table, lobby_id) do
+        [{^lobby_id, lobby}] ->
+          Enum.any?(lobby.players, fn player ->
+            is_map(player) && Map.has_key?(player, "id") && player["id"] == user_id
+          end)
+        [] ->
+          # Fall back to direct lookup if not in ETS
+          case get_lobby(lobby_id) do
+            {:ok, lobby} ->
+              Enum.any?(lobby.players, fn player ->
+                is_map(player) && Map.has_key?(player, "id") && player["id"] == user_id
+              end)
+            _ -> false
+          end
+      end
+    rescue
+      # Handle case where ETS table doesn't exist yet
+      _ ->
     case get_lobby(lobby_id) do
       {:ok, lobby} ->
         Enum.any?(lobby.players, fn player ->
           is_map(player) && Map.has_key?(player, "id") && player["id"] == user_id
         end)
       _ -> false
+        end
     end
   end
 
-  # Find all lobbies a user is in
+  # Find all lobbies a user is in - now uses dedicated ETS table for user-to-lobby mapping
   def find_user_lobbies(user_id) do
-    list_lobbies()
-    |> Enum.filter(fn lobby ->
-      Map.has_key?(lobby, :players) &&
-      is_list(lobby.players) &&
-      Enum.any?(lobby.players, fn player ->
-        is_map(player) && Map.has_key?(player, "id") && player["id"] == user_id
-      end)
-    end)
+    # Use the optimized lookup from LobbyRegistry
+    LobbyRegistry.get_user_lobbies(user_id)
   end
 
   # Kick a player from a lobby (only leaders can do this)
