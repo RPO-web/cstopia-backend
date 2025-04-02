@@ -475,14 +475,48 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
   end
 
   @impl true
-  def handle_info({:lobby_closed, lobby}, socket) do
-    # Remove from the list of lobbies
+  def handle_info({:lobby_closed, %{lobby: lobby}}, socket) do
+    # Handle the new message format with nested lobby field
     updated_lobbies = Enum.reject(socket.assigns.lobbies, fn l -> l.id == lobby.id end)
 
     # If the user was in this lobby, navigate back to the index
     current_lobby = socket.assigns[:lobby]
     socket = if current_lobby && current_lobby.id == lobby.id do
       push_navigate(socket, to: ~p"/teamfinder")
+    else
+      socket
+    end
+
+    {:noreply, assign(socket, :lobbies, updated_lobbies)}
+  end
+
+  @impl true
+  def handle_info({:lobby_closed, lobby}, socket) when is_map(lobby) and is_map_key(lobby, :id) do
+    # Handle format where lobby is sent directly
+    updated_lobbies = Enum.reject(socket.assigns.lobbies, fn l -> l.id == lobby.id end)
+
+    # If the user was in this lobby, navigate back to the index
+    current_lobby = socket.assigns[:lobby]
+    socket = if current_lobby && current_lobby.id == lobby.id do
+      push_navigate(socket, to: ~p"/teamfinder")
+    else
+      socket
+    end
+
+    {:noreply, assign(socket, :lobbies, updated_lobbies)}
+  end
+
+  @impl true
+  def handle_info({:lobby_closed, lobby_id}, socket) when is_binary(lobby_id) do
+    # Handle format where only lobby_id is sent
+    updated_lobbies = Enum.reject(socket.assigns.lobbies, fn l -> l.id == lobby_id end)
+
+    # If the user was in this lobby, navigate back to the index
+    current_lobby = socket.assigns[:lobby]
+    socket = if current_lobby && current_lobby.id == lobby_id do
+      socket
+      |> put_flash(:info, "This team has been closed.")
+      |> push_navigate(to: ~p"/teamfinder")
     else
       socket
     end
@@ -598,7 +632,29 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
   # Helper to update the current lobby if it matches the updated lobby
   defp update_current_lobby(socket, lobby) do
     if socket.assigns[:lobby] && socket.assigns.lobby.id == lobby.id do
-      assign(socket, :lobby, lobby)
+      # Make sure we're using the most complete version of the lobby data
+      updated_lobby = cond do
+        # If the incoming lobby has chat_messages and the current doesn't, use incoming
+        !Map.has_key?(socket.assigns.lobby, :chat_messages) && Map.has_key?(lobby, :chat_messages) ->
+          lobby
+
+        # If both have chat_messages, but incoming is empty and current is not, preserve current
+        Map.has_key?(socket.assigns.lobby, :chat_messages) &&
+        Map.has_key?(lobby, :chat_messages) &&
+        Enum.empty?(lobby.chat_messages) &&
+        !Enum.empty?(socket.assigns.lobby.chat_messages) ->
+          socket.assigns.lobby
+
+        # If incoming has chat_host_only set but current doesn't, use incoming
+        !Map.has_key?(socket.assigns.lobby, :chat_host_only) && Map.has_key?(lobby, :chat_host_only) ->
+          lobby
+
+        # Default: use incoming lobby data
+        true ->
+          lobby
+      end
+
+      assign(socket, :lobby, updated_lobby)
     else
       socket
     end
@@ -627,9 +683,23 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
             end)
             {:noreply, assign(socket, :lobbies, updated_lobbies)}
 
-          {:lobby_closed, lobby_id} ->
-            filtered_lobbies = Enum.reject(socket.assigns.lobbies, fn lobby -> lobby.id == lobby_id end)
-            {:noreply, assign(socket, :lobbies, filtered_lobbies)}
+          # The more specific handlers will catch most cases, this is just a fallback
+          {:lobby_closed, data} ->
+            # Extract lobby_id depending on the format of data
+            lobby_id = cond do
+              is_map(data) && Map.has_key?(data, :id) -> data.id
+              is_map(data) && Map.has_key?(data, :lobby) && is_map(data.lobby) -> data.lobby.id
+              is_binary(data) -> data
+              true -> nil
+            end
+
+            if lobby_id do
+              filtered_lobbies = Enum.reject(socket.assigns.lobbies, fn lobby -> lobby.id == lobby_id end)
+              {:noreply, assign(socket, :lobbies, filtered_lobbies)}
+            else
+              # If we can't determine the lobby_id, just pass it through
+              {:noreply, socket}
+            end
 
           _ ->
             {:noreply, socket}
@@ -645,8 +715,17 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
               {:noreply, socket}
             end
 
-          {:lobby_closed, lobby_id} ->
-            if socket.assigns.lobby.id == lobby_id do
+          # Handle different formats of lobby_closed messages
+          {:lobby_closed, data} ->
+            # Extract lobby_id depending on the format of data
+            lobby_id = cond do
+              is_map(data) && Map.has_key?(data, :id) -> data.id
+              is_map(data) && Map.has_key?(data, :lobby) && is_map(data.lobby) -> data.lobby.id
+              is_binary(data) -> data
+              true -> nil
+            end
+
+            if lobby_id && socket.assigns.lobby.id == lobby_id do
               {:noreply,
                socket
                |> put_flash(:error, "This team has been closed by the leader.")
@@ -895,4 +974,184 @@ defmodule CstopiaBackendWeb.TeamfinderLive do
     end
   end
   defp ensure_map_keys(other), do: other
+
+  # Handle chat message events
+  @impl true
+  def handle_event("send_chat_message", %{"message" => message}, socket) do
+    if socket.assigns[:current_user] && socket.assigns[:lobby] do
+      user_id = socket.assigns.current_user.id
+      lobby_id = socket.assigns.lobby.id
+
+      case LobbyManager.send_chat_message(lobby_id, user_id, message) do
+        {:ok, _message} ->
+          {:noreply, socket}
+
+        {:error, :host_only_mode} ->
+          {:noreply, socket |> put_flash(:error, "Only the host can send messages in host-only mode")}
+
+        {:error, :invalid_message} ->
+          {:noreply, socket |> put_flash(:error, "Invalid message content")}
+
+        {:error, _} ->
+          {:noreply, socket |> put_flash(:error, "Failed to send message")}
+      end
+    else
+      {:noreply, socket |> put_flash(:error, "You must be logged in and in a lobby to send messages")}
+    end
+  end
+
+  @impl true
+  def handle_event("delete_chat_message", %{"message_id" => message_id}, socket) do
+    if socket.assigns[:current_user] && socket.assigns[:lobby] do
+      user_id = socket.assigns.current_user.id
+      lobby_id = socket.assigns.lobby.id
+
+      # First provide immediate visual feedback by removing the message locally
+      # This gives a responsive feel while the server processes the deletion
+      current_messages = socket.assigns.lobby.chat_messages || []
+      updated_messages = Enum.reject(current_messages, fn msg -> msg.id == message_id end)
+      updated_lobby = Map.put(socket.assigns.lobby, :chat_messages, updated_messages)
+
+      # Push event to client to handle the deletion in JS (more responsive)
+      socket =
+        socket
+        |> assign(:lobby, updated_lobby)
+        |> push_event("chat_message_deleted", %{message_id: message_id})
+
+      # Then send the actual delete request to the server
+      spawn(fn ->
+        LobbyManager.delete_chat_message(lobby_id, message_id, user_id)
+      end)
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("toggle_host_only_chat", _params, socket) do
+    if socket.assigns[:current_user] && socket.assigns[:lobby] do
+      user_id = socket.assigns.current_user.id
+      lobby_id = socket.assigns.lobby.id
+
+      case LobbyManager.toggle_host_only_chat(lobby_id, user_id) do
+        {:ok, host_only} ->
+          # Don't need to update the socket here since the broadcast will update all clients
+          # The host who triggered this will see the change immediately
+          status = if host_only, do: "enabled", else: "disabled"
+          {:noreply, put_flash(socket, :info, "Host-only mode #{status}")}
+
+        {:error, :not_authorized} ->
+          {:noreply, socket |> put_flash(:error, "Only the host can change chat mode")}
+
+        {:error, _} ->
+          {:noreply, socket |> put_flash(:error, "Failed to toggle host-only mode")}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # Handle chat-related PubSub messages
+  @impl true
+  def handle_info({:chat_message_sent, %{lobby: updated_lobby, message: message}}, socket) do
+    # Make sure we update the lobby with the new message
+    socket =
+      if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
+        # Add the new message to the existing messages if needed
+        updated_messages = case {socket.assigns.lobby.chat_messages, updated_lobby.chat_messages} do
+          {existing, []} when is_list(existing) and length(existing) > 0 ->
+            # If incoming lobby has empty messages but we have messages, keep ours and add the new one
+            [message | existing]
+          _ ->
+            # Otherwise use the incoming messages
+            updated_lobby.chat_messages
+        end
+
+        # Create a merged lobby with complete chat messages
+        merged_lobby = Map.put(updated_lobby, :chat_messages, updated_messages)
+        assign(socket, :lobby, merged_lobby)
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:chat_message_deleted, %{message_id: message_id} = payload}, socket) do
+    # Get the current chat messages and lobby state
+    current_lobby = socket.assigns[:lobby]
+
+    if current_lobby && current_lobby.id == get_in(payload, [:lobby, :id]) do
+      # Get the updated messages from the payload or update the current messages
+      updated_lobby =
+        if updated_lobby_data = get_in(payload, [:lobby]) do
+          # Use the lobby directly from the payload if available
+          updated_lobby_data
+        else
+          # Get updated messages or mark the message as deleted
+          updated_messages =
+            if chat_messages = get_in(payload, [:chat_messages]) do
+              # Use the messages directly from the payload if available
+              chat_messages
+            else
+              # Find and mark the message as deleted
+              Enum.map(current_lobby.chat_messages || [], fn msg ->
+                if msg.id == message_id do
+                  Map.merge(msg, %{deleted: true, content: "Message deleted"})
+                else
+                  msg
+                end
+              end)
+            end
+
+          # Create a new lobby state with the updated messages
+          Map.put(current_lobby, :chat_messages, updated_messages)
+        end
+
+      # Send a JavaScript event to notify the client about the deletion
+      socket =
+        socket
+        |> assign(:lobby, updated_lobby)
+        |> push_event("chat_message_deleted", %{message_id: message_id})
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_info({:chat_mode_changed, %{lobby: updated_lobby, host_only: host_only, chat_messages: chat_messages}}, socket) do
+    # Make sure we update the lobby with both the mode change and messages
+    socket =
+      if socket.assigns[:lobby] && socket.assigns.lobby.id == updated_lobby.id do
+        # Preserve chat messages if needed
+        updated_lobby = if updated_lobby.chat_messages == [] && socket.assigns.lobby.chat_messages != [] do
+          Map.put(updated_lobby, :chat_messages, chat_messages || socket.assigns.lobby.chat_messages)
+        else
+          updated_lobby
+        end
+
+        # Add a flash message to indicate the mode change to all users
+        socket =
+          if host_only do
+            socket
+            |> assign(:lobby, updated_lobby)
+            |> put_flash(:info, "Chat is now in host-only mode")
+          else
+            socket
+            |> assign(:lobby, updated_lobby)
+            |> put_flash(:info, "Chat is now open to all team members")
+          end
+
+        socket
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
 end

@@ -322,6 +322,136 @@
                 </div>
               <% end %>
             </div>
+
+            <!-- Team Chat -->
+            <%= if player_in_lobby?(@current_user, @lobby) do %>
+              <div class="md:w-1/2 space-y-6">
+                <div>
+                  <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-medium text-gray-900 mb-2">Team Chat</h2>
+                    <%= if player_is_leader?(@current_user, @lobby) do %>
+                      <button phx-click="toggle_host_only_chat" class={"inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md shadow-sm text-white #{if @lobby.chat_host_only, do: "bg-red-500 hover:bg-red-600", else: "bg-indigo-500 hover:bg-indigo-600"} focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"}>
+                        <%= if @lobby.chat_host_only do %>
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                          Host Only
+                        <% else %>
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                          </svg>
+                          Everyone
+                        <% end %>
+                      </button>
+                    <% end %>
+                  </div>
+                  
+                  <!-- Chat Messages Area -->
+                  <div class="bg-gray-50 rounded-lg p-3">
+                    <div id="chat-messages" phx-hook="ChatScroll" class="h-64 overflow-y-auto mb-3 p-2 bg-white border border-gray-200 rounded-md" phx-update="replace">
+                      <%= if !@lobby.chat_messages || Enum.empty?(@lobby.chat_messages) do %>
+                        <div id="empty-chat-message" class="flex items-center justify-center h-full">
+                          <p class="text-sm text-gray-500">No messages yet</p>
+                        </div>
+                      <% else %>
+                        <!-- Messages are stored newest first, so we need to reverse -->
+                        <%= for message <- Enum.reverse(@lobby.chat_messages) do %>
+                          <div id={"chat-message-#{message.id}"} class={"chat-message mb-2 p-2 rounded-lg hover:bg-gray-50 group relative #{if message[:deleted], do: 'deleted-message bg-gray-100'}"}>
+                            <div class="flex">
+                              <div class="h-8 w-8 rounded-full overflow-hidden mr-2 flex-shrink-0">
+                                <img 
+                                  src={"https://cdn.discordapp.com/avatars/#{message.discord_id}/#{message.avatar}.png"} 
+                                  alt={message.username} 
+                                  class="w-full h-full object-cover"
+                                  onerror={"this.onerror=null; this.src='https://ui-avatars.com/api/?name=#{message.username}&background=random';"}
+                                />
+                              </div>
+                              <div class="flex flex-col w-full">
+                                <div class="flex justify-between items-center">
+                                  <span class="text-sm font-medium text-gray-900">
+                                    <%= message.username %>
+                                    <%= if message.user_id == @lobby.leader_id do %>
+                                      <span class="ml-1 text-xs text-yellow-600">(Host)</span>
+                                    <% end %>
+                                  </span>
+                                  <span class="text-xs text-gray-500">
+                                    <%= relative_time(message.timestamp) %>
+                                  </span>
+                                </div>
+                                <p class={"text-sm #{if message[:deleted], do: 'text-gray-500 italic', else: 'text-gray-700'}"}><%= message.content %></p>
+                              </div>
+                            </div>
+                            
+                            <!-- Delete button for host - only show for non-deleted messages -->
+                            <%= if player_is_leader?(@current_user, @lobby) && !message[:deleted] do %>
+                              <div class="absolute top-2 right-2 hidden group-hover:block">
+                                <button phx-click="delete_chat_message" phx-value-message_id={message.id} class="text-red-600 hover:text-red-800">
+                                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
+                            <% end %>
+                          </div>
+                        <% end %>
+                      <% end %>
+                    </div>
+                    
+                    <!-- Chat Input Form -->
+                    <div class="relative">
+                      <%= if @lobby.chat_host_only && @current_user && @current_user.id != @lobby.leader_id do %>
+                        <div class="flex items-center justify-center py-2 px-4 bg-red-50 border border-red-200 text-red-600 rounded-md">
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                          <span class="text-sm">Host-only mode is enabled</span>
+                        </div>
+                      <% else %>
+                        <form phx-submit="send_chat_message" class="flex">
+                          <input 
+                            type="text" 
+                            name="message" 
+                            placeholder="Type your message..." 
+                            maxlength="500"
+                            class="flex-grow border border-gray-300 rounded-l-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500" 
+                            required
+                          />
+                          <button 
+                            type="submit"
+                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-r-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                            </svg>
+                          </button>
+                        </form>
+                      <% end %>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            <% else %>
+              <div class="md:w-1/2 space-y-6">
+                <div>
+                  <h2 class="text-lg font-medium text-gray-900 mb-2">Team Chat</h2>
+                  <div class="bg-gray-50 rounded-lg p-6">
+                    <div class="flex flex-col items-center justify-center text-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                      <p class="text-gray-600 mb-2">You need to be a member of this team to view the chat</p>
+                      <%= if @current_user do %>
+                        <button phx-click="join-lobby" phx-value-id={@lobby.id} class="mt-4 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                          Join Team to Chat
+                        </button>
+                      <% else %>
+                        <p class="text-sm text-gray-500 mt-2">Log in to join this team</p>
+                      <% end %>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            <% end %>
           </div>
         </div>
       </div>

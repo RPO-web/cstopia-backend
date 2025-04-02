@@ -148,4 +148,21 @@ defmodule CstopiaBackend.Lobbies.LobbyManager do
   def filter_lobbies(criteria) do
     LobbyRegistry.filter_lobbies(criteria)
   end
+
+  # Chat functionality
+
+  # Send a chat message to a lobby
+  def send_chat_message(lobby_id, user_id, message) do
+    LobbyServer.send_chat_message(lobby_id, user_id, message)
+  end
+
+  # Delete a chat message (only host can do this)
+  def delete_chat_message(lobby_id, message_id, user_id) do
+    LobbyServer.delete_chat_message(lobby_id, message_id, user_id)
+  end
+
+  # Toggle host-only chat mode
+  def toggle_host_only_chat(lobby_id, user_id) do
+    LobbyServer.toggle_host_only_chat(lobby_id, user_id)
+  end
 end

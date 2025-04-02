@@ -112,6 +112,106 @@ let Hooks = {
     destroyed() {
       if (this.sortable) this.sortable.destroy();
     }
+  },
+  
+  // Auto-scrolling chat messages
+  ChatScroll: {
+    mounted() {
+      this.scrollToBottom();
+      // Initialize observer to watch for DOM changes
+      this.setupMutationObserver();
+      
+      // Set up event handlers for LiveView events
+      this.handleEvent("chat_message_deleted", ({message_id}) => {
+        this.handleMessageDeleted(message_id);
+      });
+      
+      this.handleEvent("chat_message_added", () => {
+        this.scrollToBottom();
+      });
+    },
+    
+    // Set up mutation observer to detect DOM changes
+    setupMutationObserver() {
+      this.observer = new MutationObserver((mutations) => {
+        let shouldScroll = false;
+        
+        // Check if messages were added or removed
+        for (const mutation of mutations) {
+          if (mutation.type === 'childList') {
+            shouldScroll = true;
+            break;
+          }
+        }
+        
+        if (shouldScroll) {
+          this.scrollToBottom();
+        }
+      });
+      
+      this.observer.observe(this.el, {
+        childList: true,
+        subtree: true,
+        attributes: false
+      });
+    },
+    
+    // Handle a message being deleted
+    handleMessageDeleted(messageId) {
+      const messageElement = document.getElementById(`chat-message-${messageId}`);
+      if (messageElement) {
+        // Add deleted styling
+        messageElement.classList.add('deleted-message', 'bg-gray-100');
+        
+        // Find the message content and update it
+        const contentElement = messageElement.querySelector('p');
+        if (contentElement) {
+          contentElement.textContent = "Message deleted";
+          contentElement.classList.add('text-gray-500', 'italic');
+          contentElement.classList.remove('text-gray-700');
+        }
+        
+        // Remove delete button if it exists
+        const deleteButton = messageElement.querySelector('button[phx-click="delete_chat_message"]');
+        if (deleteButton) {
+          const buttonContainer = deleteButton.closest('div');
+          if (buttonContainer) {
+            buttonContainer.remove();
+          }
+        }
+        
+        // Scroll to bottom if needed
+        this.scrollToBottom();
+      }
+    },
+    
+    scrollToBottom() {
+      // Only auto-scroll if user is already at the bottom or this is the initial load
+      const isAtBottom = this.el.scrollHeight - this.el.scrollTop <= this.el.clientHeight + 150;
+      if (isAtBottom || this.initialScroll) {
+        // Small delay to ensure DOM has updated
+        setTimeout(() => {
+          this.el.scrollTop = this.el.scrollHeight;
+        }, 10);
+        this.initialScroll = false;
+      }
+    },
+    
+    updated() {
+      this.scrollToBottom();
+    },
+    
+    beforeUpdate() {
+      // Store scroll position to determine if user was at bottom
+      this.isAtBottom = this.el.scrollHeight - this.el.scrollTop <= this.el.clientHeight + 100;
+      this.initialScroll = this.el.scrollTop === 0 && this.el.children.length <= 1;
+    },
+    
+    disconnected() {
+      if (this.observer) {
+        this.observer.disconnect();
+      }
+    }
   }
 };
 

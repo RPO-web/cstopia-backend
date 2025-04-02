@@ -58,7 +58,8 @@ defmodule CstopiaBackend.MixProject do
       {:ueberauth, "~> 0.10.5"},
       {:ueberauth_discord, "~> 0.7.0"},
       {:hammer, "~> 6.1"},
-      {:hammer_plug, "~> 3.0"}
+      {:hammer_plug, "~> 3.0"},
+      {:meck, "~> 0.9.2", only: :test}
     ]
   end
 

@@ -1,6 +1,7 @@
 defmodule CstopiaBackend.Lobbies.LobbyServer do
   use GenServer
   alias Phoenix.PubSub
+  alias CstopiaBackend.Lobbies.LobbyChat
   require Logger
 
   @pubsub_module CstopiaBackend.PubSub
@@ -35,7 +36,10 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
       leader_id: params["creator"]["id"],
       created_at: DateTime.utc_now(),
       blocked_users: MapSet.new(),
-      inactive_timers: %{}
+      inactive_timers: %{},
+      # Add chat message state with empty array and host-only mode disabled
+      chat_messages: [],
+      chat_host_only: false
     }
 
     {:ok, _pid} = DynamicSupervisor.start_child(
@@ -157,6 +161,18 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
       [{pid, _}] -> GenServer.call(pid, {:update_player_positions, leader_id, player_order})
       [] -> {:error, :lobby_not_found}
     end
+  end
+
+  def send_chat_message(lobby_id, user_id, message_text) when is_binary(message_text) do
+    GenServer.call(via_tuple(lobby_id), {:send_chat_message, user_id, message_text})
+  end
+
+  def delete_chat_message(lobby_id, message_id, user_id) do
+    GenServer.call(via_tuple(lobby_id), {:delete_chat_message, message_id, user_id})
+  end
+
+  def toggle_host_only_chat(lobby_id, user_id) do
+    GenServer.call(via_tuple(lobby_id), {:toggle_host_only_chat, user_id})
   end
 
   # Server Callbacks
@@ -543,6 +559,9 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
       description: state.description,
       leader_id: state.leader_id,
       created_at: state.created_at,
+      # Add chat state to compact representation
+      chat_host_only: state.chat_host_only,
+      chat_messages: state.chat_messages,
       # Preserve enough player information for UI display
       players: Enum.map(state.players, fn player ->
         %{
@@ -566,11 +585,18 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
     # For the registry, send a compact version to save memory
     compact_lobby = compact_state_for_registry(lobby)
 
+    # For chat-related events, make sure the chat_messages are included
+    data_with_messages = if event_type in [:chat_message_sent, :chat_message_deleted, :chat_mode_changed] do
+      Map.merge(data, %{chat_messages: lobby.chat_messages})
+    else
+      data
+    end
+
     # First broadcast to the lobby-specific channel with full data
     PubSub.broadcast(
       @pubsub_module,
       "lobby:#{lobby.id}",
-      {event_type, Map.merge(data, %{lobby: lobby})}
+      {event_type, Map.merge(data_with_messages, %{lobby: lobby})}
     )
 
     # Then broadcast to the global lobbies channel with compact data
@@ -586,12 +612,62 @@ defmodule CstopiaBackend.Lobbies.LobbyServer do
         PubSub.broadcast(@pubsub_module, "lobbies", {:lobby_updated, compact_lobby})
       :host_migrated ->
         PubSub.broadcast(@pubsub_module, "lobbies", {:lobby_updated, compact_lobby})
+      :chat_message_sent ->
+        # For chat messages, we need to ensure both channels get updated
+        PubSub.broadcast(@pubsub_module, "lobbies", {:lobby_updated, compact_lobby})
+        PubSub.broadcast(@pubsub_module, "lobbies", {:chat_message_sent, Map.merge(data_with_messages, %{lobby: compact_lobby})})
+      :chat_message_deleted ->
+        # For message deletions, ensure both channels get updated
+        PubSub.broadcast(@pubsub_module, "lobbies", {:lobby_updated, compact_lobby})
+        PubSub.broadcast(@pubsub_module, "lobbies", {:chat_message_deleted, Map.merge(data_with_messages, %{lobby: compact_lobby})})
+      :chat_mode_changed ->
+        # For chat mode changes, ensure both channels get updated
+        PubSub.broadcast(@pubsub_module, "lobbies", {:lobby_updated, compact_lobby})
+        PubSub.broadcast(@pubsub_module, "lobbies", {:chat_mode_changed, Map.merge(data_with_messages, %{lobby: compact_lobby})})
       _ ->
         # For other events, send a general update
         PubSub.broadcast(@pubsub_module, "lobbies", {:lobby_updated, compact_lobby})
     end
   end
 
-  # Remove legacy broadcast functions
-  # Instead use broadcast_lobby_event with appropriate event type
+  # Add message handlers in handle_call
+
+  @impl true
+  def handle_call({:send_chat_message, user_id, message_text}, _from, state) do
+    case LobbyChat.send_message(state, user_id, message_text) do
+      {:ok, message, updated_state} ->
+        # Broadcast a general update after the message-specific broadcast
+        broadcast_lobby_event(updated_state, :lobby_updated)
+        {:reply, {:ok, message}, updated_state}
+
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:delete_chat_message, message_id, user_id}, _from, state) do
+    case LobbyChat.delete_message(state, message_id, user_id) do
+      {:ok, updated_state} ->
+        # Broadcast a general update after the message deletion
+        broadcast_lobby_event(updated_state, :lobby_updated)
+        {:reply, :ok, updated_state}
+
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:toggle_host_only_chat, user_id}, _from, state) do
+    case LobbyChat.toggle_host_only_mode(state, user_id) do
+      {:ok, host_only_status, updated_state} ->
+        # Broadcast a general update after the mode change
+        broadcast_lobby_event(updated_state, :lobby_updated)
+        {:reply, {:ok, host_only_status}, updated_state}
+
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
 end
